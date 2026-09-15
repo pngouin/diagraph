@@ -24,10 +24,14 @@
   .node circle, .node polygon, .node rect { stroke: #ffffff; stroke-width: 1.5px; cursor: grab; }
   .node:active circle, .node:active polygon, .node:active rect { cursor: grabbing; }
   .node text { font-size: 12px; fill: #212529; text-anchor: middle; pointer-events: none; }
-  .node.dimmed, .edge.dimmed { opacity: 0.12; }
+  .node.dimmed, .edge.dimmed, .edge-label.dimmed { opacity: 0.12; }
   .node.search-match circle, .node.search-match polygon, .node.search-match rect { stroke: #212529; stroke-width: 3px; }
   .edge { stroke: #495057; stroke-width: 2px; fill: none; }
   .edge.cross-env { stroke-dasharray: 6 4; }
+  .edge-label {
+    font-size: 10px; fill: #495057; text-anchor: middle; pointer-events: none;
+    paint-order: stroke; stroke: #f8f9fa; stroke-width: 3px; stroke-linejoin: round;
+  }
   #legend {
     position: absolute; left: 12px; bottom: 12px; background: rgba(255, 255, 255, 0.92);
     border: 1px solid #dee2e6; border-radius: 6px; padding: 10px 12px; font-size: 12px;
@@ -226,7 +230,19 @@
           line.dataset.from = e.from;
           line.dataset.to = e.to;
           viewport.appendChild(line);
-          edgeElements.push({ line, from: e.from, to: e.to });
+
+          let labelEl = null;
+          if (e.label) {
+            labelEl = document.createElementNS(svgNS, 'text');
+            labelEl.setAttribute('class', 'edge-label');
+            labelEl.setAttribute('x', (seg.x1 + seg.x2) / 2);
+            labelEl.setAttribute('y', (seg.y1 + seg.y2) / 2);
+            labelEl.dataset.from = e.from;
+            labelEl.dataset.to = e.to;
+            labelEl.textContent = e.label;
+            viewport.appendChild(labelEl);
+          }
+          edgeElements.push({ line, labelEl, from: e.from, to: e.to });
         });
 
         view.nodes.forEach((n) => {
@@ -303,7 +319,7 @@
           text.setAttribute('x', x);
           text.setAttribute('y', y + 34);
         }
-        edgeElements.forEach(({ line, from, to }) => {
+        edgeElements.forEach(({ line, labelEl, from, to }) => {
           if (from !== id && to !== id) return;
           const fromPos = positions.get(from);
           const toPos = positions.get(to);
@@ -313,6 +329,10 @@
           line.setAttribute('y1', seg.y1);
           line.setAttribute('x2', seg.x2);
           line.setAttribute('y2', seg.y2);
+          if (labelEl) {
+            labelEl.setAttribute('x', (seg.x1 + seg.x2) / 2);
+            labelEl.setAttribute('y', (seg.y1 + seg.y2) / 2);
+          }
         });
       }
 
@@ -336,15 +356,15 @@
           g.classList.toggle('dimmed', set !== null && !set.has(id));
           g.classList.toggle('search-match', searchQuery !== '' && set !== null && set.has(id));
         });
-        viewport.querySelectorAll('.edge').forEach((line) => {
+        viewport.querySelectorAll('.edge, .edge-label').forEach((el) => {
           if (set === null) {
-            line.classList.remove('dimmed');
+            el.classList.remove('dimmed');
             return;
           }
           const show = focusedId
-            ? line.dataset.from === focusedId || line.dataset.to === focusedId
-            : set.has(line.dataset.from) && set.has(line.dataset.to);
-          line.classList.toggle('dimmed', !show);
+            ? el.dataset.from === focusedId || el.dataset.to === focusedId
+            : set.has(el.dataset.from) && set.has(el.dataset.to);
+          el.classList.toggle('dimmed', !show);
         });
       }
 
