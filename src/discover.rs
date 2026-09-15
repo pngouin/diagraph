@@ -5,7 +5,7 @@ use serde::Deserialize;
 use thiserror::Error;
 
 use crate::manifest::{MANIFEST_FILE_NAME, ManifestFile};
-use crate::model::{Component, Edge, EdgeTarget, Graph};
+use crate::model::{Component, Edge, EdgeTarget, Graph, Part, PartEdge};
 
 pub type Result<T> = std::result::Result<T, DiscoverError>;
 
@@ -119,6 +119,25 @@ fn load_component(dir: &Path) -> Result<Component> {
             },
             via: e.via,
             data: e.data,
+            from_part: e.from_part,
+            to_part: e.to_part,
+        })
+        .collect();
+
+    let parts = manifest
+        .parts
+        .into_iter()
+        .map(|p| Part {
+            name: p.name,
+            edges: p
+                .edges
+                .into_iter()
+                .map(|pe| PartEdge {
+                    target: pe.target,
+                    via: pe.via,
+                    data: pe.data,
+                })
+                .collect(),
         })
         .collect();
 
@@ -127,6 +146,7 @@ fn load_component(dir: &Path) -> Result<Component> {
         dir: dir.to_path_buf(),
         environment: manifest.environment,
         edges,
+        parts,
     })
 }
 
@@ -309,6 +329,39 @@ mod tests {
         let dir = TempDir::new();
         dir.write("diagram.toml", "");
         assert!(scan(dir.path()).is_err());
+    }
+
+    #[test]
+    fn parts_and_part_attribution_are_mapped_into_the_graph() {
+        let dir = TempDir::new();
+        dir.write(
+            "diagram.toml",
+            r#"
+            name = "report-generator"
+
+            [[parts]]
+            name = "fetch-thread"
+            [[parts.edges]]
+            target = "upload-thread"
+            via = "channel"
+
+            [[parts]]
+            name = "upload-thread"
+
+            [[edges]]
+            target = "s3-reports-bucket"
+            external = true
+            from_part = "upload-thread"
+            "#,
+        );
+        let graph = scan(dir.path()).unwrap();
+        let component = &graph.components[0];
+        assert_eq!(component.parts.len(), 2);
+        assert_eq!(component.parts[0].edges[0].target, "upload-thread");
+        assert_eq!(
+            component.edges[0].from_part.as_deref(),
+            Some("upload-thread")
+        );
     }
 
     #[test]
