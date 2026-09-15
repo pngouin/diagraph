@@ -1,11 +1,62 @@
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail};
 use serde::Deserialize;
+use thiserror::Error;
 
 use crate::manifest::{MANIFEST_FILE_NAME, ManifestFile};
 use crate::model::{Component, Edge, EdgeTarget, Graph};
+
+pub type Result<T> = std::result::Result<T, DiscoverError>;
+
+#[derive(Debug, Error)]
+pub enum DiscoverError {
+    #[error("walking {0}")]
+    Walk(#[source] walkdir::Error),
+    #[error("reading {path}")]
+    Read {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("parsing {path}")]
+    ParseToml {
+        path: PathBuf,
+        #[source]
+        source: toml::de::Error,
+    },
+    #[error("parsing {path}")]
+    ParseJson {
+        path: PathBuf,
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error(
+        "resolving a Name for the Component at {dir} (no Cargo.toml, package.json, or pyproject.toml found, and no `name` field in diagram.toml)"
+    )]
+    NoNameSource { dir: PathBuf },
+}
+
+fn read(path: &Path) -> Result<String> {
+    fs::read_to_string(path).map_err(|source| DiscoverError::Read {
+        path: path.to_path_buf(),
+        source,
+    })
+}
+
+fn parse_toml<T: serde::de::DeserializeOwned>(path: &Path, raw: &str) -> Result<T> {
+    toml::from_str(raw).map_err(|source| DiscoverError::ParseToml {
+        path: path.to_path_buf(),
+        source,
+    })
+}
+
+fn parse_json<T: serde::de::DeserializeOwned>(path: &Path, raw: &str) -> Result<T> {
+    serde_json::from_str(raw).map_err(|source| DiscoverError::ParseJson {
+        path: path.to_path_buf(),
+        source,
+    })
+}
 
 const IGNORED_DIR_NAMES: &[&str] = &[
     ".git",
@@ -26,7 +77,7 @@ pub fn scan(root: &Path) -> Result<Graph> {
         .into_iter()
         .filter_entry(|e| !is_ignored(e))
     {
-        let entry = entry.with_context(|| format!("walking {}", root.display()))?;
+        let entry = entry.map_err(DiscoverError::Walk)?;
         if entry.file_name() != MANIFEST_FILE_NAME {
             continue;
         }
@@ -52,18 +103,10 @@ fn is_ignored(entry: &walkdir::DirEntry) -> bool {
 
 fn load_component(dir: &Path) -> Result<Component> {
     let manifest_path = dir.join(MANIFEST_FILE_NAME);
-    let raw = fs::read_to_string(&manifest_path)
-        .with_context(|| format!("reading {}", manifest_path.display()))?;
-    let manifest: ManifestFile =
-        toml::from_str(&raw).with_context(|| format!("parsing {}", manifest_path.display()))?;
+    let raw = read(&manifest_path)?;
+    let manifest: ManifestFile = parse_toml(&manifest_path, &raw)?;
 
-    let name = resolve_name(dir, &manifest).with_context(|| {
-        format!(
-            "resolving a Name for the Component at {} (no Cargo.toml, package.json, or \
-             pyproject.toml found, and no `name` field in diagram.toml)",
-            dir.display()
-        )
-    })?;
+    let name = resolve_name(dir, &manifest)?;
 
     let edges = manifest
         .edges
@@ -103,7 +146,9 @@ fn resolve_name(dir: &Path, manifest: &ManifestFile) -> Result<String> {
     if let Some(name) = &manifest.name {
         return Ok(name.clone());
     }
-    bail!("no name source available");
+    Err(DiscoverError::NoNameSource {
+        dir: dir.to_path_buf(),
+    })
 }
 
 fn read_cargo_toml_name(dir: &Path) -> Result<Option<String>> {
@@ -119,9 +164,8 @@ fn read_cargo_toml_name(dir: &Path) -> Result<Option<String>> {
     struct Package {
         name: String,
     }
-    let raw = fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
-    let parsed: CargoToml =
-        toml::from_str(&raw).with_context(|| format!("parsing {}", path.display()))?;
+    let raw = read(&path)?;
+    let parsed: CargoToml = parse_toml(&path, &raw)?;
     Ok(Some(parsed.package.name))
 }
 
@@ -130,9 +174,8 @@ fn read_package_json_name(dir: &Path) -> Result<Option<String>> {
     if !path.is_file() {
         return Ok(None);
     }
-    let raw = fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
-    let parsed: serde_json::Value =
-        serde_json::from_str(&raw).with_context(|| format!("parsing {}", path.display()))?;
+    let raw = read(&path)?;
+    let parsed: serde_json::Value = parse_json(&path, &raw)?;
     Ok(parsed
         .get("name")
         .and_then(|v| v.as_str())
@@ -144,9 +187,8 @@ fn read_pyproject_toml_name(dir: &Path) -> Result<Option<String>> {
     if !path.is_file() {
         return Ok(None);
     }
-    let raw = fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
-    let parsed: toml::Value =
-        toml::from_str(&raw).with_context(|| format!("parsing {}", path.display()))?;
+    let raw = read(&path)?;
+    let parsed: toml::Value = parse_toml(&path, &raw)?;
     let name = parsed
         .get("project")
         .and_then(|v| v.get("name"))

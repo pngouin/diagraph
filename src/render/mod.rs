@@ -1,11 +1,19 @@
 use std::collections::HashMap;
 
-use anyhow::{Context, Result};
+use thiserror::Error;
 
 use crate::model::{Edge, EdgeTarget, Graph};
 
 pub mod dot;
 pub mod mermaid;
+
+pub type Result<T> = std::result::Result<T, RenderError>;
+
+#[derive(Debug, Error)]
+pub enum RenderError {
+    #[error("no Component named \"{0}\" was found (does it match a Cargo.toml/package.json name?)")]
+    UnknownComponent(String),
+}
 
 pub struct RenderView {
     pub nodes: Vec<NodeView>,
@@ -81,9 +89,9 @@ pub fn global_view(graph: &Graph) -> RenderView {
 /// (including External targets) and every other Component's edge that
 /// targets it (incoming, derived by scanning — Edges are outgoing-only).
 pub fn component_view(graph: &Graph, name: &str) -> Result<RenderView> {
-    let center = graph.find(name).with_context(|| {
-        format!("no Component named \"{name}\" was found (does it match a Cargo.toml/package.json name?)")
-    })?;
+    let center = graph
+        .find(name)
+        .ok_or_else(|| RenderError::UnknownComponent(name.to_string()))?;
 
     let mut nodes = Vec::new();
     let mut ids = HashMap::new();
