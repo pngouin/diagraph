@@ -8,6 +8,7 @@ pub fn render(view: &RenderView) -> String {
             NodeKind::Component => format!("[\"{label}\"]"),
             NodeKind::External => format!("([\"{label}\"])"),
             NodeKind::Environment => format!("{{{{\"{label}\"}}}}"),
+            NodeKind::Part => format!("[[\"{label}\"]]"),
         };
         out.push_str(&format!("    {}{}\n", n.id, shape));
     }
@@ -68,6 +69,16 @@ mod tests {
         };
         let out = render(&view);
         assert!(out.contains("n0{{\"cloud\"}}"));
+    }
+
+    #[test]
+    fn renders_part_subroutine_shape() {
+        let view = RenderView {
+            nodes: vec![node("n0", "fetch-thread", NodeKind::Part)],
+            edges: vec![],
+        };
+        let out = render(&view);
+        assert!(out.contains("n0[[\"fetch-thread\"]]"));
     }
 
     #[test]

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use thiserror::Error;
 
-use crate::model::{Edge, EdgeTarget, Graph};
+use crate::model::{Edge, EdgeTarget, Graph, PartEdge};
 
 pub mod dot;
 pub mod html;
@@ -28,11 +28,12 @@ pub struct NodeView {
     pub environment: Option<String>,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NodeKind {
     Component,
     External,
     Environment,
+    Part,
 }
 
 impl NodeKind {
@@ -41,6 +42,7 @@ impl NodeKind {
             NodeKind::Component => "component",
             NodeKind::External => "external",
             NodeKind::Environment => "environment",
+            NodeKind::Part => "part",
         }
     }
 }
@@ -173,6 +175,109 @@ pub fn environment_view(graph: &Graph) -> RenderView {
     RenderView { nodes, edges }
 }
 
+/// Scoped to one Component: its Parts, the internal Part-to-Part edges
+/// between them, and every Edge touching the Component redrawn at the
+/// specific Part named by `from_part`/`to_part` when known. An Edge with no
+/// such attribution attaches to the Component's own node instead of being
+/// dropped, so a Component with no declared Parts still renders a sensible
+/// (Component-view-like) diagram.
+pub fn zoomed_view(graph: &Graph, name: &str) -> Result<RenderView> {
+    let center = graph
+        .find(name)
+        .ok_or_else(|| RenderError::UnknownComponent(name.to_string()))?;
+
+    let mut nodes = Vec::new();
+    let mut ids = HashMap::new();
+    let center_id = resolve_node(
+        &mut nodes,
+        &mut ids,
+        &center.name,
+        NodeKind::Component,
+        center.environment.clone(),
+    );
+
+    // A Part's name is only unique within its own Component, so it must never
+    // share a namespace with `ids` (real Component/External Names) — a Part
+    // could otherwise collide with an unrelated neighbor of the same name.
+    let mut part_ids: HashMap<&str, String> = HashMap::new();
+    for part in &center.parts {
+        let id = format!("n{}", nodes.len());
+        nodes.push(NodeView {
+            id: id.clone(),
+            label: part.name.clone(),
+            kind: NodeKind::Part,
+            environment: center.environment.clone(),
+        });
+        part_ids.insert(&part.name, id);
+    }
+
+    let mut edges = Vec::new();
+
+    for part in &center.parts {
+        let from_id = part_ids[part.name.as_str()].clone();
+        for part_edge in &part.edges {
+            let Some(to_id) = part_ids.get(part_edge.target.as_str()).cloned() else {
+                continue; // validate() reports this as UnknownPartEdgeTarget
+            };
+            edges.push(EdgeView {
+                from: from_id.clone(),
+                to: to_id,
+                label: part_edge_label(part_edge),
+                cross_environment: false,
+            });
+        }
+    }
+
+    for e in &center.edges {
+        let origin = e
+            .from_part
+            .as_deref()
+            .and_then(|p| part_ids.get(p))
+            .cloned()
+            .unwrap_or_else(|| center_id.clone());
+        let (target_name, kind) = target_name_and_kind(&e.target);
+        let env = graph.environment_of(&e.target).map(str::to_string);
+        let to_id = resolve_node(&mut nodes, &mut ids, &target_name, kind, env);
+        edges.push(EdgeView {
+            from: origin,
+            to: to_id,
+            label: with_remote_part_hint(edge_label(e), e.to_part.as_deref()),
+            cross_environment: graph.crosses_environment(center, e),
+        });
+    }
+
+    for other in &graph.components {
+        if other.name == center.name {
+            continue;
+        }
+        for e in &other.edges {
+            if matches!(&e.target, EdgeTarget::Component(n) if n == &center.name) {
+                let from_id = resolve_node(
+                    &mut nodes,
+                    &mut ids,
+                    &other.name,
+                    NodeKind::Component,
+                    other.environment.clone(),
+                );
+                let dest = e
+                    .to_part
+                    .as_deref()
+                    .and_then(|p| part_ids.get(p))
+                    .cloned()
+                    .unwrap_or_else(|| center_id.clone());
+                edges.push(EdgeView {
+                    from: from_id,
+                    to: dest,
+                    label: with_remote_part_hint(edge_label(e), e.from_part.as_deref()),
+                    cross_environment: graph.crosses_environment(other, e),
+                });
+            }
+        }
+    }
+
+    Ok(RenderView { nodes, edges })
+}
+
 fn target_name_and_kind(target: &EdgeTarget) -> (String, NodeKind) {
     match target {
         EdgeTarget::Component(n) => (n.clone(), NodeKind::Component),
@@ -180,12 +285,31 @@ fn target_name_and_kind(target: &EdgeTarget) -> (String, NodeKind) {
     }
 }
 
-fn edge_label(edge: &Edge) -> Option<String> {
-    match (&edge.via, &edge.data) {
+fn combine_via_data(via: &Option<String>, data: &Option<String>) -> Option<String> {
+    match (via, data) {
         (Some(via), Some(data)) => Some(format!("{via} ({data})")),
         (Some(via), None) => Some(via.clone()),
         (None, Some(data)) => Some(format!("data: {data}")),
         (None, None) => None,
+    }
+}
+
+fn edge_label(edge: &Edge) -> Option<String> {
+    combine_via_data(&edge.via, &edge.data)
+}
+
+fn part_edge_label(edge: &PartEdge) -> Option<String> {
+    combine_via_data(&edge.via, &edge.data)
+}
+
+/// Appends the remote side's Part attribution to a label, when known — the
+/// remote Component isn't itself zoomed in here, so its internal detail can
+/// only surface as a hint on the edge.
+fn with_remote_part_hint(base: Option<String>, remote_part: Option<&str>) -> Option<String> {
+    match (base, remote_part) {
+        (Some(b), Some(p)) => Some(format!("{b} → {p}")),
+        (None, Some(p)) => Some(format!("→ {p}")),
+        (base, None) => base,
     }
 }
 
@@ -217,7 +341,7 @@ fn resolve_node(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::Component;
+    use crate::model::{Component, Part};
     use std::path::PathBuf;
 
     fn component(name: &str, environment: Option<&str>, edges: Vec<Edge>) -> Component {
@@ -237,6 +361,13 @@ mod tests {
             data: None,
             from_part: None,
             to_part: None,
+        }
+    }
+
+    fn part(name: &str, edges: Vec<PartEdge>) -> Part {
+        Part {
+            name: name.to_string(),
+            edges,
         }
     }
 
@@ -327,5 +458,167 @@ mod tests {
         assert_eq!(view.nodes.len(), 2);
         assert_eq!(view.edges.len(), graph.environment_edges().len());
         assert!(view.edges.iter().all(|e| e.cross_environment));
+    }
+
+    fn report_generator_with_parts() -> Component {
+        Component {
+            parts: vec![
+                part(
+                    "fetch-thread",
+                    vec![PartEdge {
+                        target: "upload-thread".to_string(),
+                        via: Some("channel".to_string()),
+                        data: None,
+                    }],
+                ),
+                part("upload-thread", vec![]),
+            ],
+            edges: vec![Edge {
+                from_part: Some("upload-thread".to_string()),
+                ..edge(EdgeTarget::External("s3-reports-bucket".to_string()))
+            }],
+            ..component("report-generator", Some("cloud"), vec![])
+        }
+    }
+
+    #[test]
+    fn zoomed_view_includes_parts_and_their_internal_edges() {
+        let graph = Graph {
+            components: vec![report_generator_with_parts()],
+        };
+        let view = zoomed_view(&graph, "report-generator").unwrap();
+        let part_nodes = view
+            .nodes
+            .iter()
+            .filter(|n| n.kind == NodeKind::Part)
+            .count();
+        assert_eq!(part_nodes, 2);
+        let internal_edge = view
+            .edges
+            .iter()
+            .find(|e| e.label.as_deref() == Some("channel"));
+        assert!(internal_edge.is_some());
+    }
+
+    #[test]
+    fn zoomed_view_attributes_outgoing_edge_to_its_from_part() {
+        let graph = Graph {
+            components: vec![report_generator_with_parts()],
+        };
+        let view = zoomed_view(&graph, "report-generator").unwrap();
+        let upload_thread_id = view
+            .nodes
+            .iter()
+            .find(|n| n.label == "upload-thread")
+            .unwrap()
+            .id
+            .clone();
+        let external_edge = view
+            .edges
+            .iter()
+            .find(|e| e.from == upload_thread_id)
+            .unwrap();
+        let external_node = view
+            .nodes
+            .iter()
+            .find(|n| n.id == external_edge.to)
+            .unwrap();
+        assert_eq!(external_node.kind, NodeKind::External);
+    }
+
+    #[test]
+    fn zoomed_view_attaches_unattributed_edge_to_the_center_node() {
+        let graph = Graph {
+            components: vec![
+                component(
+                    "api-gateway",
+                    Some("cloud"),
+                    vec![edge(EdgeTarget::Component("report-generator".to_string()))],
+                ),
+                report_generator_with_parts(),
+            ],
+        };
+        let view = zoomed_view(&graph, "report-generator").unwrap();
+        let center_id = view
+            .nodes
+            .iter()
+            .find(|n| n.label == "report-generator" && n.kind == NodeKind::Component)
+            .unwrap()
+            .id
+            .clone();
+        let incoming = view.edges.iter().find(|e| e.to == center_id).unwrap();
+        let sender = view.nodes.iter().find(|n| n.id == incoming.from).unwrap();
+        assert_eq!(sender.label, "api-gateway");
+    }
+
+    #[test]
+    fn zoomed_view_attributes_incoming_edge_to_its_to_part() {
+        let graph = Graph {
+            components: vec![
+                component(
+                    "api-gateway",
+                    Some("cloud"),
+                    vec![Edge {
+                        to_part: Some("fetch-thread".to_string()),
+                        ..edge(EdgeTarget::Component("report-generator".to_string()))
+                    }],
+                ),
+                report_generator_with_parts(),
+            ],
+        };
+        let view = zoomed_view(&graph, "report-generator").unwrap();
+        let fetch_thread_id = view
+            .nodes
+            .iter()
+            .find(|n| n.label == "fetch-thread")
+            .unwrap()
+            .id
+            .clone();
+        let incoming = view
+            .edges
+            .iter()
+            .find(|e| e.to == fetch_thread_id && e.from != fetch_thread_id)
+            .unwrap();
+        let sender = view.nodes.iter().find(|n| n.id == incoming.from).unwrap();
+        assert_eq!(sender.label, "api-gateway");
+    }
+
+    #[test]
+    fn zoomed_view_part_named_like_a_real_component_does_not_collide() {
+        let mut center = report_generator_with_parts();
+        center.parts.push(part("user-service", vec![]));
+        let graph = Graph {
+            components: vec![
+                center,
+                component(
+                    "user-service",
+                    Some("cloud"),
+                    vec![edge(EdgeTarget::Component("report-generator".to_string()))],
+                ),
+            ],
+        };
+        let view = zoomed_view(&graph, "report-generator").unwrap();
+        let matching_user_service_nodes: Vec<_> = view
+            .nodes
+            .iter()
+            .filter(|n| n.label == "user-service")
+            .collect();
+        assert_eq!(matching_user_service_nodes.len(), 2);
+        assert!(
+            matching_user_service_nodes
+                .iter()
+                .any(|n| n.kind == NodeKind::Part)
+        );
+        assert!(
+            matching_user_service_nodes
+                .iter()
+                .any(|n| n.kind == NodeKind::Component)
+        );
+    }
+
+    #[test]
+    fn zoomed_view_errors_on_unknown_name() {
+        let graph = sample_graph();
+        assert!(zoomed_view(&graph, "does-not-exist").is_err());
     }
 }

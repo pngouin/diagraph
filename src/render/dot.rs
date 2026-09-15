@@ -7,6 +7,7 @@ pub fn render(view: &RenderView) -> String {
             NodeKind::Component => "box",
             NodeKind::External => "ellipse",
             NodeKind::Environment => "hexagon",
+            NodeKind::Part => "component",
         };
         let dashed = matches!(n.kind, NodeKind::External);
         out.push_str(&format!(
@@ -67,6 +68,16 @@ mod tests {
         let out = render(&view);
         assert!(out.contains("shape=ellipse"));
         assert!(out.contains("style=dashed"));
+    }
+
+    #[test]
+    fn part_nodes_get_component_shape() {
+        let view = RenderView {
+            nodes: vec![node("n0", "fetch-thread", NodeKind::Part)],
+            edges: vec![],
+        };
+        let out = render(&view);
+        assert!(out.contains("shape=component"));
     }
 
     #[test]
