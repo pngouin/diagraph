@@ -1,0 +1,3 @@
+# Component Name comes from the existing language manifest, not diagram.toml
+
+A Component's canonical Name is read from its co-located language-native project file (`Cargo.toml` `[package].name`, `package.json` `"name"`, a Python project file's project name), rather than being a required field in `diagram.toml`. We considered making `name` a required field in `diagram.toml` for simplicity, but rejected it: a name duplicated in two files invites drift once one is renamed and the other isn't, and every real Component in this monorepo already has a name declared somewhere. `diagram.toml`'s `name` field is only a fallback for the rare Component with no such file.

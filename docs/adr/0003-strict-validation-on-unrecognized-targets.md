@@ -1,0 +1,3 @@
+# Unrecognized edge targets are validation errors unless explicitly marked external
+
+An Edge whose target name matches no discovered Component could be treated as an implicit "external" node (lenient), or rejected as a validation error unless the manifest explicitly marks it `external = true` (strict). We chose strict validation: with real components across multiple repos and languages, a typo'd Component name silently turning into a phantom external node would produce a wrong diagram with no error to catch it. `diagraph check` fails on any target that is neither a known Component's Name nor explicitly flagged external.
