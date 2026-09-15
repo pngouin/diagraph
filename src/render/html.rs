@@ -1,7 +1,9 @@
+use std::collections::HashMap;
+
 use serde::Serialize;
 use thiserror::Error;
 
-use super::{RenderView, environment_view, global_view};
+use super::{RenderError, RenderView, environment_view, global_view, zoomed_view};
 use crate::model::Graph;
 
 pub const DEFAULT_FILENAME: &str = "diagraph.html";
@@ -13,6 +15,8 @@ const PLACEHOLDER: &str = "__DIAGRAPH_DATA__";
 pub enum HtmlError {
     #[error("serializing graph data to JSON")]
     Serialize(#[source] serde_json::Error),
+    #[error("building zoomed view")]
+    Zoom(#[source] RenderError),
 }
 
 pub type Result<T> = std::result::Result<T, HtmlError>;
@@ -45,6 +49,7 @@ struct JsonView {
 struct Views {
     global: JsonView,
     environment: JsonView,
+    zoomed: HashMap<String, JsonView>,
 }
 
 #[derive(Serialize)]
@@ -94,11 +99,18 @@ fn escape_less_than(json: &str) -> String {
 }
 
 pub fn render(graph: &Graph) -> Result<String> {
+    let mut zoomed = HashMap::new();
+    for component in &graph.components {
+        let view = zoomed_view(graph, &component.name).map_err(HtmlError::Zoom)?;
+        zoomed.insert(component.name.clone(), to_json_view(view));
+    }
+
     let payload = Payload {
         environments: graph.environments(),
         views: Views {
             global: to_json_view(global_view(graph)),
             environment: to_json_view(environment_view(graph)),
+            zoomed,
         },
     };
     let json = serde_json::to_string(&payload).map_err(HtmlError::Serialize)?;
@@ -153,6 +165,41 @@ mod tests {
         assert_eq!(payload["environments"][0], "cloud");
         assert!(payload["views"]["global"]["nodes"].is_array());
         assert!(payload["views"]["environment"]["nodes"].is_array());
+    }
+
+    #[test]
+    fn zoomed_views_are_embedded_for_every_component() {
+        let html = render(&sample_graph()).unwrap();
+        let payload = extract_payload(&html);
+        assert!(payload["views"]["zoomed"]["api-gateway"]["nodes"].is_array());
+        assert!(payload["views"]["zoomed"]["user-service"]["nodes"].is_array());
+    }
+
+    #[test]
+    fn zoomed_view_payload_includes_part_nodes() {
+        use crate::model::{Part, PartEdge};
+        let mut graph = sample_graph();
+        graph.components[1].parts = vec![
+            Part {
+                name: "fetch-thread".to_string(),
+                edges: vec![PartEdge {
+                    target: "upload-thread".to_string(),
+                    via: None,
+                    data: None,
+                }],
+            },
+            Part {
+                name: "upload-thread".to_string(),
+                edges: vec![],
+            },
+        ];
+        let html = render(&graph).unwrap();
+        let payload = extract_payload(&html);
+        let nodes = payload["views"]["zoomed"]["user-service"]["nodes"]
+            .as_array()
+            .unwrap();
+        let part_count = nodes.iter().filter(|n| n["kind"] == "part").count();
+        assert_eq!(part_count, 2);
     }
 
     #[test]
