@@ -33,6 +33,9 @@ enum Command {
         /// Render the Environment view instead of the Global view.
         #[arg(long)]
         environment: bool,
+        /// Render the zoomed (Part-level) view of --component instead of just its neighbors.
+        #[arg(long, requires = "component")]
+        zoom: bool,
         #[arg(long, value_enum, default_value = "mermaid")]
         format: Format,
         #[arg(short, long)]
@@ -60,9 +63,10 @@ fn main() -> Result<()> {
             root,
             component,
             environment,
+            zoom,
             format,
             output,
-        } => cmd_render(&root, component, environment, format, output),
+        } => cmd_render(&root, component, environment, zoom, format, output),
         Command::View { root, output } => cmd_view(&root, &output),
     }
 }
@@ -87,14 +91,16 @@ fn cmd_render(
     root: &Path,
     component: Option<String>,
     environment: bool,
+    zoom: bool,
     format: Format,
     output: Option<PathBuf>,
 ) -> Result<()> {
     let graph = discover::scan(root)?;
-    let view = match (&component, environment) {
-        (Some(name), _) => render::component_view(&graph, name)?,
-        (None, true) => render::environment_view(&graph),
-        (None, false) => render::global_view(&graph),
+    let view = match (&component, zoom, environment) {
+        (Some(name), true, _) => render::zoomed_view(&graph, name)?,
+        (Some(name), false, _) => render::component_view(&graph, name)?,
+        (None, _, true) => render::environment_view(&graph),
+        (None, _, false) => render::global_view(&graph),
     };
     let text = match format {
         Format::Mermaid => render::mermaid::render(&view),
@@ -145,6 +151,7 @@ mod tests {
             &fixture_root(),
             None,
             false,
+            false,
             Format::Mermaid,
             Some(output.clone()),
         )
@@ -161,6 +168,7 @@ mod tests {
         cmd_render(
             &fixture_root(),
             Some("report-generator".to_string()),
+            false,
             false,
             Format::Dot,
             Some(output.clone()),
@@ -179,6 +187,7 @@ mod tests {
             &fixture_root(),
             None,
             true,
+            false,
             Format::Mermaid,
             Some(output.clone()),
         )
@@ -187,6 +196,31 @@ mod tests {
         assert!(text.contains("cloud"));
         assert!(text.contains("iot"));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn render_zoom_produces_the_zoomed_view() {
+        let dir = scratch_dir();
+        let output = dir.join("zoomed.mmd");
+        cmd_render(
+            &fixture_root(),
+            Some("report-generator".to_string()),
+            false,
+            true,
+            Format::Mermaid,
+            Some(output.clone()),
+        )
+        .unwrap();
+        let text = std::fs::read_to_string(&output).unwrap();
+        assert!(text.starts_with("flowchart LR"));
+        assert!(text.contains("report-generator"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn zoom_flag_requires_component_flag() {
+        let result = Cli::try_parse_from(["diagraph", "render", "--zoom"]);
+        assert!(result.is_err());
     }
 
     #[test]
