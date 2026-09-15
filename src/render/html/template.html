@@ -21,10 +21,10 @@
   }
   #canvas-wrap { position: absolute; top: 44px; left: 0; right: 0; bottom: 0; overflow: hidden; }
   svg { width: 100%; height: 100%; touch-action: none; cursor: grab; }
-  .node circle, .node polygon { stroke: #ffffff; stroke-width: 1.5px; cursor: pointer; }
+  .node circle, .node polygon, .node rect { stroke: #ffffff; stroke-width: 1.5px; cursor: pointer; }
   .node text { font-size: 12px; fill: #212529; text-anchor: middle; pointer-events: none; }
   .node.dimmed, .edge.dimmed { opacity: 0.12; }
-  .node.search-match circle, .node.search-match polygon { stroke: #212529; stroke-width: 3px; }
+  .node.search-match circle, .node.search-match polygon, .node.search-match rect { stroke: #212529; stroke-width: 3px; }
   .edge { stroke: #495057; stroke-width: 2px; fill: none; }
   .edge.cross-env { stroke-dasharray: 6 4; }
   #legend {
@@ -42,6 +42,7 @@
   <div id="toolbar">
     <button data-view="global" class="active">Global</button>
     <button data-view="environment">Environment</button>
+    <button id="back-button" style="display:none">← Back to Global</button>
     <input id="search" type="search" placeholder="Filter by name…">
   </div>
   <div id="canvas-wrap">
@@ -64,15 +65,22 @@
       const viewport = document.getElementById('viewport');
       const legend = document.getElementById('legend');
       const searchInput = document.getElementById('search');
+      const backButton = document.getElementById('back-button');
 
       const PALETTE = ['#4c6ef5', '#12b886', '#f59f00', '#e64980', '#7048e8', '#15aabf', '#fa5252', '#82c91e'];
       const NODE_RADIUS = 22;
 
+      let mode = 'view'; // 'view' (Global/Environment) or 'zoom' (one Component's Parts)
       let currentViewName = 'global';
+      let currentZoomName = null;
       let focusedId = null;
       let searchQuery = '';
       let adjacency = new Map();
       const transform = { x: 0, y: 0, scale: 1 };
+
+      function getCurrentView() {
+        return mode === 'zoom' ? DATA.views.zoomed[currentZoomName] : DATA.views[currentViewName];
+      }
 
       function colorForEnvironment(env) {
         if (!env) return '#868e96';
@@ -93,6 +101,14 @@
 
       function computeLayout(view) {
         const cx = 450, cy = 350;
+        if (mode === 'zoom') {
+          const isSubject = (n) => n.kind === 'part' || (n.kind === 'component' && n.label === currentZoomName);
+          const subjects = view.nodes.filter(isSubject);
+          const neighbors = view.nodes.filter((n) => !isSubject(n));
+          const inner = layoutCircular(subjects, 140, cx, cy);
+          const outer = layoutCircular(neighbors, 280, cx, cy);
+          return new Map([...inner, ...outer]);
+        }
         if (currentViewName === 'global') {
           const components = view.nodes.filter((n) => n.kind === 'component');
           const externals = view.nodes.filter((n) => n.kind === 'external');
@@ -136,6 +152,16 @@
           el.setAttribute('points', points);
           return el;
         }
+        if (kind === 'part') {
+          const w = 40, h = 26;
+          const el = document.createElementNS(svgNS, 'rect');
+          el.setAttribute('x', x - w / 2);
+          el.setAttribute('y', y - h / 2);
+          el.setAttribute('width', w);
+          el.setAttribute('height', h);
+          el.setAttribute('rx', 6);
+          return el;
+        }
         const el = document.createElementNS(svgNS, 'circle');
         el.setAttribute('cx', x);
         el.setAttribute('cy', y);
@@ -147,16 +173,32 @@
         while (viewport.firstChild) viewport.removeChild(viewport.firstChild);
       }
 
+      function updateToolbarActiveState() {
+        document.querySelectorAll('#toolbar button[data-view]').forEach((btn) => {
+          btn.classList.toggle('active', mode === 'view' && btn.dataset.view === currentViewName);
+        });
+        backButton.style.display = mode === 'zoom' ? '' : 'none';
+      }
+
       function renderView(name) {
+        mode = 'view';
         currentViewName = name;
+        draw();
+      }
+
+      function renderZoom(name) {
+        mode = 'zoom';
+        currentZoomName = name;
+        draw();
+      }
+
+      function draw() {
         focusedId = null;
         searchQuery = '';
         searchInput.value = '';
-        document.querySelectorAll('#toolbar button[data-view]').forEach((btn) => {
-          btn.classList.toggle('active', btn.dataset.view === name);
-        });
+        updateToolbarActiveState();
 
-        const view = DATA.views[name];
+        const view = getCurrentView();
         adjacency = buildAdjacency(view.edges);
         const positions = computeLayout(view);
         clearViewport();
@@ -199,6 +241,12 @@
             focusedId = focusedId === n.id ? null : n.id;
             updateHighlight();
           });
+          if (n.kind === 'component' && DATA.views.zoomed[n.label]) {
+            g.addEventListener('dblclick', (ev) => {
+              ev.stopPropagation();
+              renderZoom(n.label);
+            });
+          }
           viewport.appendChild(g);
         });
 
@@ -211,7 +259,7 @@
           return new Set([focusedId, ...(adjacency.get(focusedId) || [])]);
         }
         if (searchQuery) {
-          const view = DATA.views[currentViewName];
+          const view = getCurrentView();
           return new Set(
             view.nodes.filter((n) => n.label.toLowerCase().includes(searchQuery)).map((n) => n.id)
           );
@@ -267,6 +315,9 @@
         legend.appendChild(shapeTitle);
         legend.appendChild(legendRow('● circle — Component'));
         legend.appendChild(legendRow('◆ diamond — External target'));
+        if (mode === 'zoom') {
+          legend.appendChild(legendRow('▭ rounded rect — Part'));
+        }
         legend.appendChild(legendRow('— solid — same/unknown environment'));
         legend.appendChild(legendRow('┄ dashed — cross-environment'));
       }
@@ -316,6 +367,7 @@
       document.querySelectorAll('#toolbar button[data-view]').forEach((btn) => {
         btn.addEventListener('click', () => renderView(btn.dataset.view));
       });
+      backButton.addEventListener('click', () => renderView('global'));
       searchInput.addEventListener('input', () => {
         focusedId = null;
         searchQuery = searchInput.value.trim().toLowerCase();
