@@ -1,0 +1,6 @@
+environment = "iot"
+
+[[edges]]
+target = "api-gateway"
+via = "MQTT bridge"
+data = "sensor telemetry"

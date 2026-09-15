@@ -1,0 +1,6 @@
+environment = "cloud"
+
+[[edges]]
+target = "report-generator"
+via = "event"
+data = "user activity"

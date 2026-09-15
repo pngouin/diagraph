@@ -1,0 +1,7 @@
+environment = "cloud"
+
+[[edges]]
+target = "s3-reports-bucket"
+external = true
+via = "nightly backup"
+data = "database dump"

@@ -1,0 +1,11 @@
+environment = "cloud"
+
+[[edges]]
+target = "user-service"
+via = "gRPC"
+data = "user lookup"
+
+[[edges]]
+target = "report-generator"
+via = "job trigger"
+data = "report request"

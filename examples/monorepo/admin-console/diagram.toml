@@ -1,0 +1,6 @@
+environment = "cloud"
+
+[[edges]]
+target = "api-gateway"
+via = "REST"
+data = "admin actions"
