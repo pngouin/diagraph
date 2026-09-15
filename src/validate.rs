@@ -83,6 +83,7 @@ mod tests {
             dir: PathBuf::from(dir),
             environment: None,
             edges,
+            parts: vec![],
         }
     }
 
@@ -91,6 +92,8 @@ mod tests {
             target,
             via: None,
             data: None,
+            from_part: None,
+            to_part: None,
         }
     }
 
