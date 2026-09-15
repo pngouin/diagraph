@@ -5,6 +5,7 @@ use thiserror::Error;
 use crate::model::{Edge, EdgeTarget, Graph};
 
 pub mod dot;
+pub mod html;
 pub mod mermaid;
 
 pub type Result<T> = std::result::Result<T, RenderError>;
