@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>diagraph</title>
+<style>
+  html, body { margin: 0; height: 100%; font-family: sans-serif; background: #f8f9fa; }
+  #toolbar {
+    position: absolute; top: 0; left: 0; right: 0; height: 44px;
+    display: flex; align-items: center; gap: 8px; padding: 0 12px;
+    background: #212529; box-sizing: border-box; z-index: 10;
+  }
+  #toolbar button {
+    background: #343a40; color: #f8f9fa; border: 1px solid #495057;
+    border-radius: 4px; padding: 6px 12px; cursor: pointer; font-size: 13px;
+  }
+  #toolbar button.active { background: #4c6ef5; border-color: #4c6ef5; }
+  #search {
+    margin-left: auto; padding: 6px 10px; border-radius: 4px; border: 1px solid #495057;
+    font-size: 13px; width: 220px;
+  }
+  #canvas-wrap { position: absolute; top: 44px; left: 0; right: 0; bottom: 0; overflow: hidden; }
+  svg { width: 100%; height: 100%; touch-action: none; cursor: grab; }
+  .node circle, .node polygon { stroke: #ffffff; stroke-width: 1.5px; cursor: pointer; }
+  .node text { font-size: 12px; fill: #212529; text-anchor: middle; pointer-events: none; }
+  .node.dimmed, .edge.dimmed { opacity: 0.12; }
+  .node.search-match circle, .node.search-match polygon { stroke: #212529; stroke-width: 3px; }
+  .edge { stroke: #495057; stroke-width: 2px; fill: none; }
+  .edge.cross-env { stroke-dasharray: 6 4; }
+  #legend {
+    position: absolute; left: 12px; bottom: 12px; background: rgba(255, 255, 255, 0.92);
+    border: 1px solid #dee2e6; border-radius: 6px; padding: 10px 12px; font-size: 12px;
+    line-height: 1.6; z-index: 10;
+  }
+  .legend-title { font-weight: bold; margin-top: 6px; }
+  .legend-title:first-child { margin-top: 0; }
+  .legend-row { display: flex; align-items: center; gap: 6px; }
+  .legend-swatch { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+</style>
+</head>
+<body>
+  <div id="toolbar">
+    <button data-view="global" class="active">Global</button>
+    <button data-view="environment">Environment</button>
+    <input id="search" type="search" placeholder="Filter by name…">
+  </div>
+  <div id="canvas-wrap">
+    <svg id="canvas" viewBox="0 0 900 700">
+      <defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#495057"></path>
+        </marker>
+      </defs>
+      <g id="viewport"></g>
+    </svg>
+  </div>
+  <div id="legend"></div>
+  <script type="application/json" id="diagraph-data">__DIAGRAPH_DATA__</script>
+  <script>
+    (function () {
+      const DATA = JSON.parse(document.getElementById('diagraph-data').textContent);
+      const svgNS = 'http://www.w3.org/2000/svg';
+      const svg = document.getElementById('canvas');
+      const viewport = document.getElementById('viewport');
+      const legend = document.getElementById('legend');
+      const searchInput = document.getElementById('search');
+
+      const PALETTE = ['#4c6ef5', '#12b886', '#f59f00', '#e64980', '#7048e8', '#15aabf', '#fa5252', '#82c91e'];
+      const NODE_RADIUS = 22;
+
+      let currentViewName = 'global';
+      let focusedId = null;
+      let searchQuery = '';
+      let adjacency = new Map();
+      const transform = { x: 0, y: 0, scale: 1 };
+
+      function colorForEnvironment(env) {
+        if (!env) return '#868e96';
+        const idx = DATA.environments.indexOf(env);
+        if (idx === -1) return '#868e96';
+        return PALETTE[idx % PALETTE.length];
+      }
+
+      function layoutCircular(nodes, radius, cx, cy) {
+        const positions = new Map();
+        const n = nodes.length;
+        nodes.forEach((node, i) => {
+          const angle = (2 * Math.PI * i) / Math.max(n, 1);
+          positions.set(node.id, { x: cx + radius * Math.cos(angle), y: cy + radius * Math.sin(angle) });
+        });
+        return positions;
+      }
+
+      function computeLayout(view) {
+        const cx = 450, cy = 350;
+        if (currentViewName === 'global') {
+          const components = view.nodes.filter((n) => n.kind === 'component');
+          const externals = view.nodes.filter((n) => n.kind === 'external');
+          const outer = layoutCircular(components, 260, cx, cy);
+          const inner = layoutCircular(externals, 120, cx, cy);
+          return new Map([...outer, ...inner]);
+        }
+        return layoutCircular(view.nodes, 220, cx, cy);
+      }
+
+      function buildAdjacency(edges) {
+        const map = new Map();
+        edges.forEach((e) => {
+          if (!map.has(e.from)) map.set(e.from, new Set());
+          if (!map.has(e.to)) map.set(e.to, new Set());
+          map.get(e.from).add(e.to);
+          map.get(e.to).add(e.from);
+        });
+        return map;
+      }
+
+      function trimSegment(from, to, startRadius, endRadius) {
+        const dx = to.x - from.x, dy = to.y - from.y;
+        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        const ux = dx / dist, uy = dy / dist;
+        return {
+          x1: from.x + ux * startRadius,
+          y1: from.y + uy * startRadius,
+          x2: to.x - ux * endRadius,
+          y2: to.y - uy * endRadius,
+        };
+      }
+
+      function shapeFor(kind, x, y) {
+        if (kind === 'external') {
+          const size = 20;
+          const el = document.createElementNS(svgNS, 'polygon');
+          const points = [[x, y - size], [x + size, y], [x, y + size], [x - size, y]]
+            .map((p) => p.join(','))
+            .join(' ');
+          el.setAttribute('points', points);
+          return el;
+        }
+        const el = document.createElementNS(svgNS, 'circle');
+        el.setAttribute('cx', x);
+        el.setAttribute('cy', y);
+        el.setAttribute('r', NODE_RADIUS);
+        return el;
+      }
+
+      function clearViewport() {
+        while (viewport.firstChild) viewport.removeChild(viewport.firstChild);
+      }
+
+      function renderView(name) {
+        currentViewName = name;
+        focusedId = null;
+        searchQuery = '';
+        searchInput.value = '';
+        document.querySelectorAll('#toolbar button[data-view]').forEach((btn) => {
+          btn.classList.toggle('active', btn.dataset.view === name);
+        });
+
+        const view = DATA.views[name];
+        adjacency = buildAdjacency(view.edges);
+        const positions = computeLayout(view);
+        clearViewport();
+
+        view.edges.forEach((e) => {
+          const from = positions.get(e.from);
+          const to = positions.get(e.to);
+          if (!from || !to) return;
+          const seg = trimSegment(from, to, NODE_RADIUS, NODE_RADIUS);
+          const line = document.createElementNS(svgNS, 'line');
+          line.setAttribute('x1', seg.x1);
+          line.setAttribute('y1', seg.y1);
+          line.setAttribute('x2', seg.x2);
+          line.setAttribute('y2', seg.y2);
+          line.setAttribute('class', 'edge' + (e.crossEnvironment ? ' cross-env' : ''));
+          line.setAttribute('marker-end', 'url(#arrow)');
+          line.dataset.from = e.from;
+          line.dataset.to = e.to;
+          viewport.appendChild(line);
+        });
+
+        view.nodes.forEach((n) => {
+          const pos = positions.get(n.id);
+          if (!pos) return;
+          const g = document.createElementNS(svgNS, 'g');
+          g.setAttribute('class', 'node');
+          g.dataset.id = n.id;
+          const shape = shapeFor(n.kind, pos.x, pos.y);
+          shape.setAttribute('fill', colorForEnvironment(n.environment));
+          g.appendChild(shape);
+          const text = document.createElementNS(svgNS, 'text');
+          text.setAttribute('x', pos.x);
+          text.setAttribute('y', pos.y + 34);
+          text.textContent = n.label;
+          g.appendChild(text);
+          g.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            searchQuery = '';
+            searchInput.value = '';
+            focusedId = focusedId === n.id ? null : n.id;
+            updateHighlight();
+          });
+          viewport.appendChild(g);
+        });
+
+        buildLegend();
+        updateHighlight();
+      }
+
+      function currentHighlightSet() {
+        if (focusedId) {
+          return new Set([focusedId, ...(adjacency.get(focusedId) || [])]);
+        }
+        if (searchQuery) {
+          const view = DATA.views[currentViewName];
+          return new Set(
+            view.nodes.filter((n) => n.label.toLowerCase().includes(searchQuery)).map((n) => n.id)
+          );
+        }
+        return null;
+      }
+
+      function updateHighlight() {
+        const set = currentHighlightSet();
+        viewport.querySelectorAll('.node').forEach((g) => {
+          const id = g.dataset.id;
+          g.classList.toggle('dimmed', set !== null && !set.has(id));
+          g.classList.toggle('search-match', searchQuery !== '' && set !== null && set.has(id));
+        });
+        viewport.querySelectorAll('.edge').forEach((line) => {
+          if (set === null) {
+            line.classList.remove('dimmed');
+            return;
+          }
+          const show = focusedId
+            ? line.dataset.from === focusedId || line.dataset.to === focusedId
+            : set.has(line.dataset.from) && set.has(line.dataset.to);
+          line.classList.toggle('dimmed', !show);
+        });
+      }
+
+      function legendRow(text) {
+        const row = document.createElement('div');
+        row.className = 'legend-row';
+        row.textContent = text;
+        return row;
+      }
+
+      function buildLegend() {
+        legend.innerHTML = '';
+        const envTitle = document.createElement('div');
+        envTitle.className = 'legend-title';
+        envTitle.textContent = 'Environments';
+        legend.appendChild(envTitle);
+        DATA.environments.forEach((env) => {
+          const row = document.createElement('div');
+          row.className = 'legend-row';
+          const swatch = document.createElement('span');
+          swatch.className = 'legend-swatch';
+          swatch.style.background = colorForEnvironment(env);
+          row.appendChild(swatch);
+          row.appendChild(document.createTextNode(env));
+          legend.appendChild(row);
+        });
+        const shapeTitle = document.createElement('div');
+        shapeTitle.className = 'legend-title';
+        shapeTitle.textContent = 'Shapes & lines';
+        legend.appendChild(shapeTitle);
+        legend.appendChild(legendRow('● circle — Component'));
+        legend.appendChild(legendRow('◆ diamond — External target'));
+        legend.appendChild(legendRow('— solid — same/unknown environment'));
+        legend.appendChild(legendRow('┄ dashed — cross-environment'));
+      }
+
+      function applyTransform() {
+        viewport.setAttribute(
+          'transform',
+          `translate(${transform.x},${transform.y}) scale(${transform.scale})`
+        );
+      }
+
+      let panState = null;
+      svg.addEventListener('pointerdown', (ev) => {
+        if (ev.target.closest('.node')) return;
+        panState = { startX: ev.clientX, startY: ev.clientY, origX: transform.x, origY: transform.y };
+      });
+      window.addEventListener('pointermove', (ev) => {
+        if (!panState) return;
+        transform.x = panState.origX + (ev.clientX - panState.startX);
+        transform.y = panState.origY + (ev.clientY - panState.startY);
+        applyTransform();
+      });
+      window.addEventListener('pointerup', () => {
+        panState = null;
+      });
+      svg.addEventListener(
+        'wheel',
+        (ev) => {
+          ev.preventDefault();
+          const rect = svg.getBoundingClientRect();
+          const mx = ev.clientX - rect.left;
+          const my = ev.clientY - rect.top;
+          const factor = ev.deltaY < 0 ? 1.1 : 0.9;
+          const newScale = Math.min(Math.max(transform.scale * factor, 0.2), 5);
+          transform.x = mx - ((mx - transform.x) * newScale) / transform.scale;
+          transform.y = my - ((my - transform.y) * newScale) / transform.scale;
+          transform.scale = newScale;
+          applyTransform();
+        },
+        { passive: false }
+      );
+      svg.addEventListener('click', () => {
+        focusedId = null;
+        updateHighlight();
+      });
+
+      document.querySelectorAll('#toolbar button[data-view]').forEach((btn) => {
+        btn.addEventListener('click', () => renderView(btn.dataset.view));
+      });
+      searchInput.addEventListener('input', () => {
+        focusedId = null;
+        searchQuery = searchInput.value.trim().toLowerCase();
+        updateHighlight();
+      });
+
+      renderView('global');
+    })();
+  </script>
+</body>
+</html>
