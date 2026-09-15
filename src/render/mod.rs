@@ -4,6 +4,7 @@ use anyhow::{Context, Result};
 
 use crate::model::{Edge, EdgeTarget, Graph};
 
+pub mod dot;
 pub mod mermaid;
 
 pub struct RenderView {
