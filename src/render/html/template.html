@@ -21,7 +21,8 @@
   }
   #canvas-wrap { position: absolute; top: 44px; left: 0; right: 0; bottom: 0; overflow: hidden; }
   svg { width: 100%; height: 100%; touch-action: none; cursor: grab; }
-  .node circle, .node polygon, .node rect { stroke: #ffffff; stroke-width: 1.5px; cursor: pointer; }
+  .node circle, .node polygon, .node rect { stroke: #ffffff; stroke-width: 1.5px; cursor: grab; }
+  .node:active circle, .node:active polygon, .node:active rect { cursor: grabbing; }
   .node text { font-size: 12px; fill: #212529; text-anchor: middle; pointer-events: none; }
   .node.dimmed, .edge.dimmed { opacity: 0.12; }
   .node.search-match circle, .node.search-match polygon, .node.search-match rect { stroke: #212529; stroke-width: 3px; }
@@ -76,6 +77,11 @@
       let focusedId = null;
       let searchQuery = '';
       let adjacency = new Map();
+      let positions = new Map();
+      let nodeElements = new Map();
+      let edgeElements = [];
+      let dragState = null;
+      let suppressClickFor = null;
       const transform = { x: 0, y: 0, scale: 1 };
 
       function getCurrentView() {
@@ -200,7 +206,9 @@
 
         const view = getCurrentView();
         adjacency = buildAdjacency(view.edges);
-        const positions = computeLayout(view);
+        positions = computeLayout(view);
+        nodeElements = new Map();
+        edgeElements = [];
         clearViewport();
 
         view.edges.forEach((e) => {
@@ -218,6 +226,7 @@
           line.dataset.from = e.from;
           line.dataset.to = e.to;
           viewport.appendChild(line);
+          edgeElements.push({ line, from: e.from, to: e.to });
         });
 
         view.nodes.forEach((n) => {
@@ -234,8 +243,25 @@
           text.setAttribute('y', pos.y + 34);
           text.textContent = n.label;
           g.appendChild(text);
+          nodeElements.set(n.id, { shape, text });
+          g.addEventListener('pointerdown', (ev) => {
+            ev.stopPropagation();
+            const origin = positions.get(n.id);
+            dragState = {
+              id: n.id,
+              startX: ev.clientX,
+              startY: ev.clientY,
+              origX: origin.x,
+              origY: origin.y,
+              moved: false,
+            };
+          });
           g.addEventListener('click', (ev) => {
             ev.stopPropagation();
+            if (suppressClickFor === n.id) {
+              suppressClickFor = null;
+              return;
+            }
             searchQuery = '';
             searchInput.value = '';
             focusedId = focusedId === n.id ? null : n.id;
@@ -252,6 +278,42 @@
 
         buildLegend();
         updateHighlight();
+      }
+
+      function updateNodePosition(id, x, y) {
+        positions.set(id, { x, y });
+        const entry = nodeElements.get(id);
+        if (entry) {
+          const { shape, text } = entry;
+          if (shape.tagName === 'circle') {
+            shape.setAttribute('cx', x);
+            shape.setAttribute('cy', y);
+          } else if (shape.tagName === 'rect') {
+            const w = Number(shape.getAttribute('width'));
+            const h = Number(shape.getAttribute('height'));
+            shape.setAttribute('x', x - w / 2);
+            shape.setAttribute('y', y - h / 2);
+          } else if (shape.tagName === 'polygon') {
+            const size = 20;
+            const points = [[x, y - size], [x + size, y], [x, y + size], [x - size, y]]
+              .map((p) => p.join(','))
+              .join(' ');
+            shape.setAttribute('points', points);
+          }
+          text.setAttribute('x', x);
+          text.setAttribute('y', y + 34);
+        }
+        edgeElements.forEach(({ line, from, to }) => {
+          if (from !== id && to !== id) return;
+          const fromPos = positions.get(from);
+          const toPos = positions.get(to);
+          if (!fromPos || !toPos) return;
+          const seg = trimSegment(fromPos, toPos, NODE_RADIUS, NODE_RADIUS);
+          line.setAttribute('x1', seg.x1);
+          line.setAttribute('y1', seg.y1);
+          line.setAttribute('x2', seg.x2);
+          line.setAttribute('y2', seg.y2);
+        });
       }
 
       function currentHighlightSet() {
@@ -335,6 +397,13 @@
         panState = { startX: ev.clientX, startY: ev.clientY, origX: transform.x, origY: transform.y };
       });
       window.addEventListener('pointermove', (ev) => {
+        if (dragState) {
+          const dx = (ev.clientX - dragState.startX) / transform.scale;
+          const dy = (ev.clientY - dragState.startY) / transform.scale;
+          if (Math.abs(dx) > 3 || Math.abs(dy) > 3) dragState.moved = true;
+          updateNodePosition(dragState.id, dragState.origX + dx, dragState.origY + dy);
+          return;
+        }
         if (!panState) return;
         transform.x = panState.origX + (ev.clientX - panState.startX);
         transform.y = panState.origY + (ev.clientY - panState.startY);
@@ -342,6 +411,8 @@
       });
       window.addEventListener('pointerup', () => {
         panState = null;
+        if (dragState && dragState.moved) suppressClickFor = dragState.id;
+        dragState = null;
       });
       svg.addEventListener(
         'wheel',
