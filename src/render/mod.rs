@@ -4,6 +4,8 @@ use anyhow::{Context, Result};
 
 use crate::model::{Edge, EdgeTarget, Graph};
 
+pub mod mermaid;
+
 pub struct RenderView {
     pub nodes: Vec<NodeView>,
     pub edges: Vec<EdgeView>,
