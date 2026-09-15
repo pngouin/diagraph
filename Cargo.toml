@@ -1,0 +1,17 @@
+[package]
+name = "diagraph"
+version = "0.1.0"
+edition = "2024"
+description = "Declare which components in your monorepo talk to which, and render static + interactive architecture diagrams."
+
+[[bin]]
+name = "diagraph"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0.104"
+clap = { version = "4.6.7", features = ["derive"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+toml = "1.1.6"
+walkdir = "2.5.0"
