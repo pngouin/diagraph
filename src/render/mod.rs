@@ -226,6 +226,7 @@ mod tests {
             dir: PathBuf::from(name),
             environment: environment.map(str::to_string),
             edges,
+            parts: vec![],
         }
     }
 
@@ -234,6 +235,8 @@ mod tests {
             target,
             via: None,
             data: None,
+            from_part: None,
+            to_part: None,
         }
     }
 

@@ -7,11 +7,36 @@ pub struct Component {
     pub dir: PathBuf,
     pub environment: Option<String>,
     pub edges: Vec<Edge>,
+    pub parts: Vec<Part>,
+}
+
+impl Component {
+    /// Part names are unique only within their own Component, never globally.
+    pub fn find_part(&self, name: &str) -> Option<&Part> {
+        self.parts.iter().find(|p| p.name == name)
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct Edge {
     pub target: EdgeTarget,
+    pub via: Option<String>,
+    pub data: Option<String>,
+    pub from_part: Option<String>,
+    pub to_part: Option<String>,
+}
+
+/// An internal subdivision of a Component — a thread, actor, worker, or module.
+#[derive(Debug, Clone)]
+pub struct Part {
+    pub name: String,
+    pub edges: Vec<PartEdge>,
+}
+
+/// A purely-internal edge between two Parts of the same Component.
+#[derive(Debug, Clone)]
+pub struct PartEdge {
+    pub target: String,
     pub via: Option<String>,
     pub data: Option<String>,
 }
@@ -96,6 +121,7 @@ mod tests {
             dir: PathBuf::from(name),
             environment: environment.map(str::to_string),
             edges,
+            parts: vec![],
         }
     }
 
@@ -104,6 +130,8 @@ mod tests {
             target,
             via: None,
             data: None,
+            from_part: None,
+            to_part: None,
         }
     }
 
@@ -191,6 +219,23 @@ mod tests {
                 ("iot".to_string(), "cloud".to_string())
             ]
         );
+    }
+
+    #[test]
+    fn find_part_looks_up_by_name_within_the_component() {
+        let mut c = component("report-generator", Some("cloud"), vec![]);
+        c.parts = vec![
+            Part {
+                name: "fetch-thread".to_string(),
+                edges: vec![],
+            },
+            Part {
+                name: "upload-thread".to_string(),
+                edges: vec![],
+            },
+        ];
+        assert_eq!(c.find_part("upload-thread").unwrap().name, "upload-thread");
+        assert!(c.find_part("does-not-exist").is_none());
     }
 
     #[test]

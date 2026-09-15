@@ -123,13 +123,17 @@ mod tests {
                         target: EdgeTarget::Component("user-service".to_string()),
                         via: Some("gRPC".to_string()),
                         data: None,
+                        from_part: None,
+                        to_part: None,
                     }],
+                    parts: vec![],
                 },
                 Component {
                     name: "user-service".to_string(),
                     dir: PathBuf::from("user-service"),
                     environment: Some("cloud".to_string()),
                     edges: vec![],
+                    parts: vec![],
                 },
             ],
         }
