@@ -10,6 +10,8 @@ pub struct ManifestFile {
     pub environment: Option<String>,
     #[serde(default)]
     pub edges: Vec<EdgeDecl>,
+    #[serde(default)]
+    pub parts: Vec<PartDecl>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -19,6 +21,22 @@ pub struct EdgeDecl {
     pub data: Option<String>,
     #[serde(default)]
     pub external: bool,
+    pub from_part: Option<String>,
+    pub to_part: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PartDecl {
+    pub name: String,
+    #[serde(default)]
+    pub edges: Vec<PartEdgeDecl>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PartEdgeDecl {
+    pub target: String,
+    pub via: Option<String>,
+    pub data: Option<String>,
 }
 
 #[cfg(test)]
@@ -71,5 +89,61 @@ mod tests {
         assert_eq!(edge.via.as_deref(), Some("upload"));
         assert_eq!(edge.data.as_deref(), Some("PDF report"));
         assert!(edge.external);
+    }
+
+    #[test]
+    fn phase_one_manifest_has_no_parts_and_no_part_attribution() {
+        let manifest: ManifestFile = toml::from_str(
+            r#"
+            [[edges]]
+            target = "other-service"
+            "#,
+        )
+        .unwrap();
+        assert!(manifest.parts.is_empty());
+        assert_eq!(manifest.edges[0].from_part, None);
+        assert_eq!(manifest.edges[0].to_part, None);
+    }
+
+    #[test]
+    fn edge_parses_from_part_and_to_part() {
+        let manifest: ManifestFile = toml::from_str(
+            r#"
+            [[edges]]
+            target = "report-generator"
+            from_part = "upload-thread"
+            to_part = "fetch-thread"
+            "#,
+        )
+        .unwrap();
+        let edge = &manifest.edges[0];
+        assert_eq!(edge.from_part.as_deref(), Some("upload-thread"));
+        assert_eq!(edge.to_part.as_deref(), Some("fetch-thread"));
+    }
+
+    #[test]
+    fn parts_with_internal_edges_parse() {
+        let manifest: ManifestFile = toml::from_str(
+            r#"
+            [[parts]]
+            name = "fetch-thread"
+            [[parts.edges]]
+            target = "upload-thread"
+            via = "channel"
+            data = "raw report rows"
+
+            [[parts]]
+            name = "upload-thread"
+            "#,
+        )
+        .unwrap();
+        assert_eq!(manifest.parts.len(), 2);
+        assert_eq!(manifest.parts[0].name, "fetch-thread");
+        let part_edge = &manifest.parts[0].edges[0];
+        assert_eq!(part_edge.target, "upload-thread");
+        assert_eq!(part_edge.via.as_deref(), Some("channel"));
+        assert_eq!(part_edge.data.as_deref(), Some("raw report rows"));
+        assert_eq!(manifest.parts[1].name, "upload-thread");
+        assert!(manifest.parts[1].edges.is_empty());
     }
 }
