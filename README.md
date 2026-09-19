@@ -138,6 +138,10 @@ diagraph render --root examples/monorepo --environment -o environments.mmd
 # Write a self-contained, offline interactive HTML diagram (never opens a browser)
 diagraph view [--root PATH] [-o FILE]
 diagraph view --root examples/monorepo -o diagraph.html
+
+# Serve the same diagram over HTTP instead of writing a file
+diagraph view serve [--root PATH] [--host 127.0.0.1] [--port 4000]
+diagraph view serve --root examples/monorepo --port 5000
 ```
 
 `--zoom` requires `--component` and switches its output to the zoomed view.
