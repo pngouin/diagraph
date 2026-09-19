@@ -1,6 +1,20 @@
 # diagraph
 
+[![CI](https://github.com/pngouin/diagraph/actions/workflows/ci.yml/badge.svg)](https://github.com/pngouin/diagraph/actions/workflows/ci.yml)
+
 Declare which components in your monorepo talk to which, and render architecture diagrams — static (Mermaid/DOT) and interactive (a self-contained HTML file).
+
+## Install
+
+```sh
+cargo install diagraph
+```
+
+Or from a checkout of this repo:
+
+```sh
+cargo install --path .
+```
 
 ## What it is
 
