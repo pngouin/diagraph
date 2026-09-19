@@ -176,6 +176,8 @@ npm install
 npm run build
 ```
 
+Or, from the repo root, `make build` runs both the frontend build and `cargo build` in one step.
+
 ## Status
 
 Components, Environments, Parts, `from_part`/`to_part` edge attribution, and all four views above are implemented.
