@@ -2,7 +2,7 @@
 name = "diagraph"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 description = "Declare which components in your monorepo talk to which, and render static + interactive architecture diagrams."
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/pngouin/diagraph"
