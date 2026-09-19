@@ -1,0 +1,6 @@
+environment = "desktop"
+
+[[edges]]
+target = "api-gateway"
+via = "REST"
+data = "admin operations"

@@ -1,0 +1,8 @@
+name = "warehouse-sensor"
+environment = "iot"
+
+[[edges]]
+target = "warehouse-gateway"
+via = "MQTT"
+data = "temperature telemetry"
+to_part = "mqtt-listener"

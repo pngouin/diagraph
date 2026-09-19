@@ -1,0 +1,25 @@
+environment = "edge"
+
+[[parts]]
+name = "mqtt-listener"
+[[parts.edges]]
+target = "dedup-worker"
+via = "channel"
+data = "raw telemetry"
+
+[[parts]]
+name = "dedup-worker"
+[[parts.edges]]
+target = "forwarder"
+via = "channel"
+data = "deduplicated telemetry"
+
+[[parts]]
+name = "forwarder"
+
+[[edges]]
+target = "inventory-service"
+via = "webhook"
+data = "shipment confirmation"
+from_part = "forwarder"
+to_part = "query-handler"

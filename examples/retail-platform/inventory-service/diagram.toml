@@ -1,0 +1,63 @@
+environment = "cloud"
+
+[[parts]]
+name = "query-handler"
+[[parts.edges]]
+target = "rate-limiter"
+via = "in-process call"
+data = "request throttle check"
+[[parts.edges]]
+target = "cache-reader"
+via = "in-process call"
+data = "stock lookup"
+
+[[parts]]
+name = "rate-limiter"
+
+[[parts]]
+name = "cache-reader"
+[[parts.edges]]
+target = "cache-writer"
+via = "channel"
+data = "cache miss backfill"
+
+[[parts]]
+name = "cache-writer"
+[[parts.edges]]
+target = "event-publisher"
+via = "channel"
+data = "stock change event"
+
+[[parts]]
+name = "event-publisher"
+
+[[parts]]
+name = "sync-worker"
+[[parts.edges]]
+target = "cache-writer"
+via = "channel"
+data = "cache invalidation"
+[[parts.edges]]
+target = "stock-reconciler"
+via = "channel"
+data = "restock confirmation"
+
+[[parts]]
+name = "stock-reconciler"
+[[parts.edges]]
+target = "cache-writer"
+via = "channel"
+data = "reconciled stock levels"
+[[parts.edges]]
+target = "audit-logger"
+via = "channel"
+data = "reconciliation record"
+
+[[parts]]
+name = "audit-logger"
+
+[[edges]]
+target = "warehouse-gateway"
+via = "MQTT"
+data = "restock trigger"
+from_part = "sync-worker"
