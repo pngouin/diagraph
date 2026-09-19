@@ -9,7 +9,9 @@ use crate::model::Graph;
 pub const DEFAULT_FILENAME: &str = "diagraph.html";
 
 const TEMPLATE: &str = include_str!("html/template.html");
-const PLACEHOLDER: &str = "__DIAGRAPH_DATA__";
+const SCRIPT: &str = include_str!("html/bundle.js");
+const DATA_PLACEHOLDER: &str = "__DIAGRAPH_DATA__";
+const SCRIPT_PLACEHOLDER: &str = "__DIAGRAPH_SCRIPT__";
 
 #[derive(Debug, Error)]
 pub enum HtmlError {
@@ -115,7 +117,8 @@ pub fn render(graph: &Graph) -> Result<String> {
     };
     let json = serde_json::to_string(&payload).map_err(HtmlError::Serialize)?;
     let json_safe = escape_less_than(&json);
-    Ok(TEMPLATE.replacen(PLACEHOLDER, &json_safe, 1))
+    let html = TEMPLATE.replacen(DATA_PLACEHOLDER, &json_safe, 1);
+    Ok(html.replacen(SCRIPT_PLACEHOLDER, SCRIPT, 1))
 }
 
 #[cfg(test)]

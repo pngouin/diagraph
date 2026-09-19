@@ -148,7 +148,7 @@ diagraph view --root examples/monorepo -o diagraph.html
 cargo run -- view --root examples/monorepo -o diagraph.html
 ```
 
-Then open `diagraph.html` in a browser. It's fully self-contained — no network requests, works offline. Double-click any Component node to zoom into its Parts (try `report-generator`); use "← Back to Global" to return. Search and click-to-focus work in both Global/Environment and zoomed modes.
+Then open `diagraph.html` in a browser. It's fully self-contained — no network requests, works offline. Environments, Components, and Parts render as one continuously zoomable map: Components sit nested inside their Environment, and double-clicking a Component (try `report-generator`) smoothly zooms in until its Parts reveal inside it, without leaving the surrounding graph behind. Scroll to zoom, drag to pan, click a node for a detail panel, and use the search box to filter and highlight by name.
 
 ## Contributing
 
@@ -156,6 +156,14 @@ Git hooks live in `.githooks/`, not `.git/hooks/`. Run once per clone:
 
 ```sh
 git config core.hooksPath .githooks
+```
+
+The interactive viewer's frontend lives in `frontend/` (TypeScript, bundled with esbuild) and is compiled to `src/render/html/bundle.js`, which is checked into the repo and embedded via `include_str!` — `cargo build`/`cargo test` never need Node. After editing anything in `frontend/src`, rebuild the bundle and commit the result:
+
+```sh
+cd frontend
+npm install
+npm run build
 ```
 
 ## Status
