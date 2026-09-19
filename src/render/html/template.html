@@ -2,471 +2,227 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>diagraph</title>
+<script>
+  // Applied before first paint so a stored theme choice doesn't flash the other theme.
+  try {
+    var t = localStorage.getItem("diagraph:theme");
+    if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+  } catch (e) {}
+</script>
 <style>
-  html, body { margin: 0; height: 100%; font-family: sans-serif; background: #f8f9fa; }
+  :root {
+    --ink: #14181c;
+    --muted: #5b6560;
+    --paper: #eff1ee;
+    --panel: #f7f8f6;
+    --surface: #ffffff;
+    --line: #c7ccc6;
+    --accent: #2f6f5e;
+    --accent-soft: #dceae4;
+    --legend-bg: rgba(247, 248, 246, 0.94);
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", "Segoe UI Mono", Consolas, monospace;
+    --inv-zoom: 1;
+  }
+
+  /* Follows the OS preference by default; the toolbar toggle pins an explicit
+     choice via [data-theme], which always wins over prefers-color-scheme. */
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ink: #e7ece8;
+      --muted: #90a099;
+      --paper: #121613;
+      --panel: #1a201c;
+      --surface: #212824;
+      --line: #333e37;
+      --accent: #6cc6a6;
+      --accent-soft: #1e352c;
+      --legend-bg: rgba(26, 32, 28, 0.94);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ink: #e7ece8;
+    --muted: #90a099;
+    --paper: #121613;
+    --panel: #1a201c;
+    --surface: #212824;
+    --line: #333e37;
+    --accent: #6cc6a6;
+    --accent-soft: #1e352c;
+    --legend-bg: rgba(26, 32, 28, 0.94);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--paper); color: var(--ink); font-family: var(--sans); }
+  button, input { font-family: inherit; }
+
+  #app { position: absolute; inset: 0; overflow: hidden; }
+
   #toolbar {
-    position: absolute; top: 0; left: 0; right: 0; height: 44px;
-    display: flex; align-items: center; gap: 8px; padding: 0 12px;
-    background: #212529; box-sizing: border-box; z-index: 10;
+    position: absolute; top: 0; left: 0; right: 0; height: 52px; z-index: 20;
+    display: flex; align-items: center; gap: 10px; padding: 0 16px;
+    background: var(--panel); border-bottom: 1px solid var(--line);
   }
-  #toolbar button {
-    background: #343a40; color: #f8f9fa; border: 1px solid #495057;
-    border-radius: 4px; padding: 6px 12px; cursor: pointer; font-size: 13px;
-  }
-  #toolbar button.active { background: #4c6ef5; border-color: #4c6ef5; }
+  #brand { font-weight: 600; font-size: 14px; letter-spacing: 0.01em; color: var(--ink); margin-right: 4px; }
   #search {
-    margin-left: auto; padding: 6px 10px; border-radius: 4px; border: 1px solid #495057;
-    font-size: 13px; width: 220px;
+    flex: 0 1 320px; min-width: 0; padding: 7px 12px; border-radius: 7px; border: 1px solid var(--line);
+    font-size: 13px; background: var(--surface); color: var(--ink);
   }
-  #canvas-wrap { position: absolute; top: 44px; left: 0; right: 0; bottom: 0; overflow: hidden; }
-  svg { width: 100%; height: 100%; touch-action: none; cursor: grab; }
-  .node circle, .node polygon, .node rect { stroke: #ffffff; stroke-width: 1.5px; cursor: grab; }
-  .node:active circle, .node:active polygon, .node:active rect { cursor: grabbing; }
-  .node text { font-size: 12px; fill: #212529; text-anchor: middle; pointer-events: none; }
-  .node.dimmed, .edge.dimmed, .edge-label.dimmed { opacity: 0.12; }
-  .node.search-match circle, .node.search-match polygon, .node.search-match rect { stroke: #212529; stroke-width: 3px; }
-  .edge { stroke: #495057; stroke-width: 2px; fill: none; }
-  .edge.cross-env { stroke-dasharray: 6 4; }
-  .edge-label {
-    font-size: 10px; fill: #495057; text-anchor: middle; pointer-events: none;
-    paint-order: stroke; stroke: #f8f9fa; stroke-width: 3px; stroke-linejoin: round;
+  #search::placeholder { color: var(--muted); }
+  .toolbar-button {
+    background: var(--surface); color: var(--ink); border: 1px solid var(--line);
+    border-radius: 7px; padding: 7px 14px; cursor: pointer; font-size: 13px; white-space: nowrap;
   }
+  .toolbar-button:hover { border-color: var(--accent); color: var(--accent); }
+  .toolbar-spacer { flex: 1; }
+  .toolbar-hint { font-size: 12px; color: var(--muted); }
+
+  #canvas-wrap { position: absolute; top: 52px; left: 0; right: 320px; bottom: 0; overflow: hidden; }
+  svg#canvas {
+    width: 100%; height: 100%; touch-action: none; cursor: grab; display: block;
+    user-select: none; -webkit-user-select: none;
+  }
+  svg#canvas:active { cursor: grabbing; }
+
+  .environment-frame { stroke-width: calc(1.5px * var(--inv-zoom)); stroke-dasharray: 3 5; }
+  .environment-label { font: 500 calc(11px * var(--inv-zoom)) var(--sans); }
+
+  .component-frame { stroke-width: calc(1.5px * var(--inv-zoom)); }
+  .component-interior { stroke: none; }
+  .component-label { font: 600 calc(11px * var(--inv-zoom)) var(--mono); fill: var(--ink); }
+  .component-caption { font: calc(10.5px * var(--inv-zoom)) var(--sans); fill: var(--muted); }
+  .component, .part, .external, .environment { cursor: pointer; }
+  .component.dimmed, .part.dimmed, .external.dimmed, .edge.dimmed, .edge-label.dimmed, .edge-label-bg.dimmed { opacity: 0.14; }
+  .component.selected .component-frame, .part.selected .part-frame { stroke-width: calc(2.5px * var(--inv-zoom)); }
+  .component.search-match .component-frame, .part.search-match .part-frame {
+    stroke-width: calc(2.5px * var(--inv-zoom)); stroke: var(--ink);
+  }
+
+  .part-frame { fill: var(--paper); stroke: var(--line); stroke-width: calc(1.25px * var(--inv-zoom)); }
+  .part-label { font: calc(10.5px * var(--inv-zoom)) var(--mono); fill: var(--ink); text-anchor: middle; }
+
+  .external-shape {
+    fill: var(--panel); stroke: var(--muted); stroke-width: calc(1.5px * var(--inv-zoom)); stroke-dasharray: 2 4;
+  }
+  .external-label { font: calc(10.5px * var(--inv-zoom)) var(--mono); fill: var(--muted); text-anchor: middle; }
+
+  .diagraph-arrow-path { fill: var(--muted); }
+  /* Markers don't inherit the referencing path's opacity, so the arrowhead
+     needs its own pre-dimmed variant swapped in via marker-end. */
+  .edge { stroke: var(--muted); stroke-width: calc(1.5px * var(--inv-zoom)); fill: none; marker-end: url(#diagraph-arrow); }
+  .edge.dimmed { marker-end: url(#diagraph-arrow-dim); }
+  .edge.cross-env { stroke-dasharray: 7 5; }
+  .edge-part-internal { stroke-width: calc(1.25px * var(--inv-zoom)); }
+  .edge-label { font: calc(10px * var(--inv-zoom)) var(--mono); fill: var(--muted); text-anchor: middle; }
+  .edge-label-bg { fill: var(--panel); stroke: var(--line); stroke-width: calc(1px * var(--inv-zoom)); rx: 3px; }
+  .edge-label-group { cursor: grab; }
+  .edge-label-group:active { cursor: grabbing; }
+
+  .resize-handle { fill: transparent; stroke: none; cursor: nwse-resize; }
+  .resize-handle-glyph { stroke: var(--muted); stroke-width: calc(1.25px * var(--inv-zoom)); opacity: 0; pointer-events: none; }
+  .component:hover .resize-handle-glyph, .part:hover .resize-handle-glyph,
+  .environment:hover .resize-handle-glyph { opacity: 0.6; }
+
+  #inspector {
+    position: absolute; top: 52px; right: 0; bottom: 0; width: 320px; z-index: 15;
+    background: var(--panel); border-left: 1px solid var(--line);
+    padding: 18px 18px 18px; overflow-y: auto;
+  }
+  .inspector-empty { color: var(--muted); font-size: 13px; line-height: 1.5; }
+  .inspector-heading { margin-bottom: 14px; }
+  .inspector-name { font: 600 15px var(--mono); word-break: break-word; }
+  .inspector-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .inspector-section {
+    font: 500 11px var(--sans); color: var(--muted); margin: 16px 0 8px;
+    padding-top: 12px; border-top: 1px solid var(--line);
+  }
+  .inspector-section:first-of-type { border-top: none; padding-top: 0; }
+  .inspector-chip {
+    display: inline-block; margin: 0 6px 6px 0; padding: 4px 9px; font: 12px var(--mono);
+    background: var(--surface); border: 1px solid var(--line); border-radius: 6px; cursor: pointer; color: var(--ink);
+  }
+  .inspector-chip:hover { border-color: var(--accent); color: var(--accent); }
+  .inspector-edge { display: flex; align-items: baseline; gap: 6px; font-size: 12px; margin-bottom: 6px; flex-wrap: wrap; }
+  .inspector-edge-arrow { color: var(--accent); }
+  .inspector-link {
+    font: 12px var(--mono); background: none; border: none; padding: 0; cursor: pointer;
+    color: var(--ink); text-decoration: underline; text-decoration-color: var(--line);
+  }
+  .inspector-link:hover { color: var(--accent); text-decoration-color: var(--accent); }
+  .inspector-edge-label { color: var(--muted); font-size: 11px; }
+
   #legend {
-    position: absolute; left: 12px; bottom: 12px; background: rgba(255, 255, 255, 0.92);
-    border: 1px solid #dee2e6; border-radius: 6px; padding: 10px 12px; font-size: 12px;
-    line-height: 1.6; z-index: 10;
+    position: absolute; left: 16px; bottom: 16px; z-index: 15;
+    background: var(--legend-bg); border: 1px solid var(--line); border-radius: 8px;
+    padding: 10px 12px; font-size: 12px; line-height: 1.7; color: var(--muted);
+    max-width: 240px;
   }
-  .legend-title { font-weight: bold; margin-top: 6px; }
-  .legend-title:first-child { margin-top: 0; }
-  .legend-row { display: flex; align-items: center; gap: 6px; }
-  .legend-swatch { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+  .legend-row { display: flex; align-items: center; gap: 7px; }
+  .legend-swatch { width: 11px; height: 11px; flex: none; }
+  .legend-swatch-env { border-radius: 50%; background: var(--swatch-color); }
+  .legend-swatch-component { border-radius: 3px; background: var(--muted); opacity: 0.5; }
+  .legend-swatch-part { border-radius: 2px; border: 1px solid var(--muted); }
+  .legend-swatch-external { background: var(--panel); border: 1.5px dashed var(--muted); transform: rotate(45deg); }
+  .legend-swatch-dashed { border-top: 1.5px dashed var(--muted); height: 0; align-self: center; }
+
+  #empty-state {
+    position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+    flex-direction: column; gap: 6px; color: var(--muted); text-align: center; padding: 24px;
+  }
+  #empty-state strong { color: var(--ink); font-size: 15px; font-weight: 600; }
+
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  @media (max-width: 760px) {
+    #inspector { display: none; }
+    #canvas-wrap { right: 0; }
+    #search { flex-basis: 120px; }
+    .toolbar-hint { display: none; }
+    #toolbar { padding: 0 10px; gap: 6px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+  }
 </style>
 </head>
 <body>
-  <div id="toolbar">
-    <button data-view="global" class="active">Global</button>
-    <button data-view="environment">Environment</button>
-    <button id="back-button" style="display:none">← Back to Global</button>
-    <input id="search" type="search" placeholder="Filter by name…">
+  <div id="app">
+    <div id="toolbar">
+      <span id="brand">diagraph</span>
+      <input id="search" type="search" placeholder="Filter components, parts, externals…">
+      <span class="toolbar-hint">scroll to zoom · drag to pan · double-click to step in</span>
+      <span class="toolbar-spacer"></span>
+      <button id="theme-toggle" class="toolbar-button" type="button">Dark</button>
+      <button id="fit-view" class="toolbar-button" type="button">Fit view</button>
+    </div>
+    <div id="canvas-wrap">
+      <svg id="canvas">
+        <defs>
+          <marker id="diagraph-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path class="diagraph-arrow-path" d="M0,0 L10,5 L0,10 z"></path>
+          </marker>
+          <marker id="diagraph-arrow-dim" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path class="diagraph-arrow-path" d="M0,0 L10,5 L0,10 z" opacity="0.14"></path>
+          </marker>
+        </defs>
+        <g id="viewport"></g>
+      </svg>
+      <div id="empty-state">
+        <strong>No components found</strong>
+        <span>Add a diagram.toml to a directory in this monorepo to see it here.</span>
+      </div>
+    </div>
+    <aside id="inspector">
+      <div id="inspector-body"></div>
+    </aside>
+    <div id="legend">
+      <div id="legend-body"></div>
+    </div>
   </div>
-  <div id="canvas-wrap">
-    <svg id="canvas" viewBox="0 0 900 700">
-      <defs>
-        <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-          <path d="M0,0 L10,5 L0,10 z" fill="#495057"></path>
-        </marker>
-      </defs>
-      <g id="viewport"></g>
-    </svg>
-  </div>
-  <div id="legend"></div>
   <script type="application/json" id="diagraph-data">__DIAGRAPH_DATA__</script>
-  <script>
-    (function () {
-      const DATA = JSON.parse(document.getElementById('diagraph-data').textContent);
-      const svgNS = 'http://www.w3.org/2000/svg';
-      const svg = document.getElementById('canvas');
-      const viewport = document.getElementById('viewport');
-      const legend = document.getElementById('legend');
-      const searchInput = document.getElementById('search');
-      const backButton = document.getElementById('back-button');
-
-      const PALETTE = ['#4c6ef5', '#12b886', '#f59f00', '#e64980', '#7048e8', '#15aabf', '#fa5252', '#82c91e'];
-      const NODE_RADIUS = 22;
-
-      let mode = 'view'; // 'view' (Global/Environment) or 'zoom' (one Component's Parts)
-      let currentViewName = 'global';
-      let currentZoomName = null;
-      let focusedId = null;
-      let searchQuery = '';
-      let adjacency = new Map();
-      let positions = new Map();
-      let nodeElements = new Map();
-      let edgeElements = [];
-      let dragState = null;
-      let suppressClickFor = null;
-      const transform = { x: 0, y: 0, scale: 1 };
-
-      function getCurrentView() {
-        return mode === 'zoom' ? DATA.views.zoomed[currentZoomName] : DATA.views[currentViewName];
-      }
-
-      function colorForEnvironment(env) {
-        if (!env) return '#868e96';
-        const idx = DATA.environments.indexOf(env);
-        if (idx === -1) return '#868e96';
-        return PALETTE[idx % PALETTE.length];
-      }
-
-      function layoutCircular(nodes, radius, cx, cy) {
-        const positions = new Map();
-        const n = nodes.length;
-        nodes.forEach((node, i) => {
-          const angle = (2 * Math.PI * i) / Math.max(n, 1);
-          positions.set(node.id, { x: cx + radius * Math.cos(angle), y: cy + radius * Math.sin(angle) });
-        });
-        return positions;
-      }
-
-      function computeLayout(view) {
-        const cx = 450, cy = 350;
-        if (mode === 'zoom') {
-          const isSubject = (n) => n.kind === 'part' || (n.kind === 'component' && n.label === currentZoomName);
-          const subjects = view.nodes.filter(isSubject);
-          const neighbors = view.nodes.filter((n) => !isSubject(n));
-          const inner = layoutCircular(subjects, 140, cx, cy);
-          const outer = layoutCircular(neighbors, 280, cx, cy);
-          return new Map([...inner, ...outer]);
-        }
-        if (currentViewName === 'global') {
-          const components = view.nodes.filter((n) => n.kind === 'component');
-          const externals = view.nodes.filter((n) => n.kind === 'external');
-          const outer = layoutCircular(components, 260, cx, cy);
-          const inner = layoutCircular(externals, 120, cx, cy);
-          return new Map([...outer, ...inner]);
-        }
-        return layoutCircular(view.nodes, 220, cx, cy);
-      }
-
-      function buildAdjacency(edges) {
-        const map = new Map();
-        edges.forEach((e) => {
-          if (!map.has(e.from)) map.set(e.from, new Set());
-          if (!map.has(e.to)) map.set(e.to, new Set());
-          map.get(e.from).add(e.to);
-          map.get(e.to).add(e.from);
-        });
-        return map;
-      }
-
-      function trimSegment(from, to, startRadius, endRadius) {
-        const dx = to.x - from.x, dy = to.y - from.y;
-        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-        const ux = dx / dist, uy = dy / dist;
-        return {
-          x1: from.x + ux * startRadius,
-          y1: from.y + uy * startRadius,
-          x2: to.x - ux * endRadius,
-          y2: to.y - uy * endRadius,
-        };
-      }
-
-      function shapeFor(kind, x, y) {
-        if (kind === 'external') {
-          const size = 20;
-          const el = document.createElementNS(svgNS, 'polygon');
-          const points = [[x, y - size], [x + size, y], [x, y + size], [x - size, y]]
-            .map((p) => p.join(','))
-            .join(' ');
-          el.setAttribute('points', points);
-          return el;
-        }
-        if (kind === 'part') {
-          const w = 40, h = 26;
-          const el = document.createElementNS(svgNS, 'rect');
-          el.setAttribute('x', x - w / 2);
-          el.setAttribute('y', y - h / 2);
-          el.setAttribute('width', w);
-          el.setAttribute('height', h);
-          el.setAttribute('rx', 6);
-          return el;
-        }
-        const el = document.createElementNS(svgNS, 'circle');
-        el.setAttribute('cx', x);
-        el.setAttribute('cy', y);
-        el.setAttribute('r', NODE_RADIUS);
-        return el;
-      }
-
-      function clearViewport() {
-        while (viewport.firstChild) viewport.removeChild(viewport.firstChild);
-      }
-
-      function updateToolbarActiveState() {
-        document.querySelectorAll('#toolbar button[data-view]').forEach((btn) => {
-          btn.classList.toggle('active', mode === 'view' && btn.dataset.view === currentViewName);
-        });
-        backButton.style.display = mode === 'zoom' ? '' : 'none';
-      }
-
-      function renderView(name) {
-        mode = 'view';
-        currentViewName = name;
-        draw();
-      }
-
-      function renderZoom(name) {
-        mode = 'zoom';
-        currentZoomName = name;
-        draw();
-      }
-
-      function draw() {
-        focusedId = null;
-        searchQuery = '';
-        searchInput.value = '';
-        updateToolbarActiveState();
-
-        const view = getCurrentView();
-        adjacency = buildAdjacency(view.edges);
-        positions = computeLayout(view);
-        nodeElements = new Map();
-        edgeElements = [];
-        clearViewport();
-
-        view.edges.forEach((e) => {
-          const from = positions.get(e.from);
-          const to = positions.get(e.to);
-          if (!from || !to) return;
-          const seg = trimSegment(from, to, NODE_RADIUS, NODE_RADIUS);
-          const line = document.createElementNS(svgNS, 'line');
-          line.setAttribute('x1', seg.x1);
-          line.setAttribute('y1', seg.y1);
-          line.setAttribute('x2', seg.x2);
-          line.setAttribute('y2', seg.y2);
-          line.setAttribute('class', 'edge' + (e.crossEnvironment ? ' cross-env' : ''));
-          line.setAttribute('marker-end', 'url(#arrow)');
-          line.dataset.from = e.from;
-          line.dataset.to = e.to;
-          viewport.appendChild(line);
-
-          let labelEl = null;
-          if (e.label) {
-            labelEl = document.createElementNS(svgNS, 'text');
-            labelEl.setAttribute('class', 'edge-label');
-            labelEl.setAttribute('x', (seg.x1 + seg.x2) / 2);
-            labelEl.setAttribute('y', (seg.y1 + seg.y2) / 2);
-            labelEl.dataset.from = e.from;
-            labelEl.dataset.to = e.to;
-            labelEl.textContent = e.label;
-            viewport.appendChild(labelEl);
-          }
-          edgeElements.push({ line, labelEl, from: e.from, to: e.to });
-        });
-
-        view.nodes.forEach((n) => {
-          const pos = positions.get(n.id);
-          if (!pos) return;
-          const g = document.createElementNS(svgNS, 'g');
-          g.setAttribute('class', 'node');
-          g.dataset.id = n.id;
-          const shape = shapeFor(n.kind, pos.x, pos.y);
-          shape.setAttribute('fill', colorForEnvironment(n.environment));
-          g.appendChild(shape);
-          const text = document.createElementNS(svgNS, 'text');
-          text.setAttribute('x', pos.x);
-          text.setAttribute('y', pos.y + 34);
-          text.textContent = n.label;
-          g.appendChild(text);
-          nodeElements.set(n.id, { shape, text });
-          g.addEventListener('pointerdown', (ev) => {
-            ev.stopPropagation();
-            const origin = positions.get(n.id);
-            dragState = {
-              id: n.id,
-              startX: ev.clientX,
-              startY: ev.clientY,
-              origX: origin.x,
-              origY: origin.y,
-              moved: false,
-            };
-          });
-          g.addEventListener('click', (ev) => {
-            ev.stopPropagation();
-            if (suppressClickFor === n.id) {
-              suppressClickFor = null;
-              return;
-            }
-            searchQuery = '';
-            searchInput.value = '';
-            focusedId = focusedId === n.id ? null : n.id;
-            updateHighlight();
-          });
-          if (n.kind === 'component' && DATA.views.zoomed[n.label]) {
-            g.addEventListener('dblclick', (ev) => {
-              ev.stopPropagation();
-              renderZoom(n.label);
-            });
-          }
-          viewport.appendChild(g);
-        });
-
-        buildLegend();
-        updateHighlight();
-      }
-
-      function updateNodePosition(id, x, y) {
-        positions.set(id, { x, y });
-        const entry = nodeElements.get(id);
-        if (entry) {
-          const { shape, text } = entry;
-          if (shape.tagName === 'circle') {
-            shape.setAttribute('cx', x);
-            shape.setAttribute('cy', y);
-          } else if (shape.tagName === 'rect') {
-            const w = Number(shape.getAttribute('width'));
-            const h = Number(shape.getAttribute('height'));
-            shape.setAttribute('x', x - w / 2);
-            shape.setAttribute('y', y - h / 2);
-          } else if (shape.tagName === 'polygon') {
-            const size = 20;
-            const points = [[x, y - size], [x + size, y], [x, y + size], [x - size, y]]
-              .map((p) => p.join(','))
-              .join(' ');
-            shape.setAttribute('points', points);
-          }
-          text.setAttribute('x', x);
-          text.setAttribute('y', y + 34);
-        }
-        edgeElements.forEach(({ line, labelEl, from, to }) => {
-          if (from !== id && to !== id) return;
-          const fromPos = positions.get(from);
-          const toPos = positions.get(to);
-          if (!fromPos || !toPos) return;
-          const seg = trimSegment(fromPos, toPos, NODE_RADIUS, NODE_RADIUS);
-          line.setAttribute('x1', seg.x1);
-          line.setAttribute('y1', seg.y1);
-          line.setAttribute('x2', seg.x2);
-          line.setAttribute('y2', seg.y2);
-          if (labelEl) {
-            labelEl.setAttribute('x', (seg.x1 + seg.x2) / 2);
-            labelEl.setAttribute('y', (seg.y1 + seg.y2) / 2);
-          }
-        });
-      }
-
-      function currentHighlightSet() {
-        if (focusedId) {
-          return new Set([focusedId, ...(adjacency.get(focusedId) || [])]);
-        }
-        if (searchQuery) {
-          const view = getCurrentView();
-          return new Set(
-            view.nodes.filter((n) => n.label.toLowerCase().includes(searchQuery)).map((n) => n.id)
-          );
-        }
-        return null;
-      }
-
-      function updateHighlight() {
-        const set = currentHighlightSet();
-        viewport.querySelectorAll('.node').forEach((g) => {
-          const id = g.dataset.id;
-          g.classList.toggle('dimmed', set !== null && !set.has(id));
-          g.classList.toggle('search-match', searchQuery !== '' && set !== null && set.has(id));
-        });
-        viewport.querySelectorAll('.edge, .edge-label').forEach((el) => {
-          if (set === null) {
-            el.classList.remove('dimmed');
-            return;
-          }
-          const show = focusedId
-            ? el.dataset.from === focusedId || el.dataset.to === focusedId
-            : set.has(el.dataset.from) && set.has(el.dataset.to);
-          el.classList.toggle('dimmed', !show);
-        });
-      }
-
-      function legendRow(text) {
-        const row = document.createElement('div');
-        row.className = 'legend-row';
-        row.textContent = text;
-        return row;
-      }
-
-      function buildLegend() {
-        legend.innerHTML = '';
-        const envTitle = document.createElement('div');
-        envTitle.className = 'legend-title';
-        envTitle.textContent = 'Environments';
-        legend.appendChild(envTitle);
-        DATA.environments.forEach((env) => {
-          const row = document.createElement('div');
-          row.className = 'legend-row';
-          const swatch = document.createElement('span');
-          swatch.className = 'legend-swatch';
-          swatch.style.background = colorForEnvironment(env);
-          row.appendChild(swatch);
-          row.appendChild(document.createTextNode(env));
-          legend.appendChild(row);
-        });
-        const shapeTitle = document.createElement('div');
-        shapeTitle.className = 'legend-title';
-        shapeTitle.textContent = 'Shapes & lines';
-        legend.appendChild(shapeTitle);
-        legend.appendChild(legendRow('● circle — Component'));
-        legend.appendChild(legendRow('◆ diamond — External target'));
-        if (mode === 'zoom') {
-          legend.appendChild(legendRow('▭ rounded rect — Part'));
-        }
-        legend.appendChild(legendRow('— solid — same/unknown environment'));
-        legend.appendChild(legendRow('┄ dashed — cross-environment'));
-      }
-
-      function applyTransform() {
-        viewport.setAttribute(
-          'transform',
-          `translate(${transform.x},${transform.y}) scale(${transform.scale})`
-        );
-      }
-
-      let panState = null;
-      svg.addEventListener('pointerdown', (ev) => {
-        if (ev.target.closest('.node')) return;
-        panState = { startX: ev.clientX, startY: ev.clientY, origX: transform.x, origY: transform.y };
-      });
-      window.addEventListener('pointermove', (ev) => {
-        if (dragState) {
-          const dx = (ev.clientX - dragState.startX) / transform.scale;
-          const dy = (ev.clientY - dragState.startY) / transform.scale;
-          if (Math.abs(dx) > 3 || Math.abs(dy) > 3) dragState.moved = true;
-          updateNodePosition(dragState.id, dragState.origX + dx, dragState.origY + dy);
-          return;
-        }
-        if (!panState) return;
-        transform.x = panState.origX + (ev.clientX - panState.startX);
-        transform.y = panState.origY + (ev.clientY - panState.startY);
-        applyTransform();
-      });
-      window.addEventListener('pointerup', () => {
-        panState = null;
-        if (dragState && dragState.moved) suppressClickFor = dragState.id;
-        dragState = null;
-      });
-      svg.addEventListener(
-        'wheel',
-        (ev) => {
-          ev.preventDefault();
-          const rect = svg.getBoundingClientRect();
-          const mx = ev.clientX - rect.left;
-          const my = ev.clientY - rect.top;
-          const factor = ev.deltaY < 0 ? 1.1 : 0.9;
-          const newScale = Math.min(Math.max(transform.scale * factor, 0.2), 5);
-          transform.x = mx - ((mx - transform.x) * newScale) / transform.scale;
-          transform.y = my - ((my - transform.y) * newScale) / transform.scale;
-          transform.scale = newScale;
-          applyTransform();
-        },
-        { passive: false }
-      );
-      svg.addEventListener('click', () => {
-        focusedId = null;
-        updateHighlight();
-      });
-
-      document.querySelectorAll('#toolbar button[data-view]').forEach((btn) => {
-        btn.addEventListener('click', () => renderView(btn.dataset.view));
-      });
-      backButton.addEventListener('click', () => renderView('global'));
-      searchInput.addEventListener('input', () => {
-        focusedId = null;
-        searchQuery = searchInput.value.trim().toLowerCase();
-        updateHighlight();
-      });
-
-      renderView('global');
-    })();
-  </script>
+  <script>__DIAGRAPH_SCRIPT__</script>
 </body>
 </html>
