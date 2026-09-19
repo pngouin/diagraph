@@ -181,3 +181,7 @@ Or, from the repo root, `make build` runs both the frontend build and `cargo bui
 ## Status
 
 Components, Environments, Parts, `from_part`/`to_part` edge attribution, and all four views above are implemented.
+
+## License
+
+Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or [MIT license](LICENSE-MIT) at your option.
