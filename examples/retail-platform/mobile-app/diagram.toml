@@ -1,0 +1,6 @@
+environment = "mobile"
+
+[[edges]]
+target = "api-gateway"
+via = "REST"
+data = "customer requests"

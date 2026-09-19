@@ -1,0 +1,12 @@
+environment = "cloud"
+
+[[edges]]
+target = "auth-service"
+via = "gRPC"
+data = "auth token validation"
+
+[[edges]]
+target = "inventory-service"
+via = "REST"
+data = "stock queries"
+to_part = "query-handler"

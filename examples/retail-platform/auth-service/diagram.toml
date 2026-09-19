@@ -1,0 +1,7 @@
+environment = "cloud"
+
+[[edges]]
+target = "ldap-directory"
+external = true
+via = "LDAP query"
+data = "credential lookup"
