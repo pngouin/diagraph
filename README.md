@@ -154,6 +154,12 @@ cargo run -- view --root examples/monorepo -o diagraph.html
 
 Then open `diagraph.html` in a browser. It's fully self-contained — no network requests, works offline. Environments, Components, and Parts render as one continuously zoomable map: Components sit nested inside their Environment, and double-clicking a Component (try `report-generator`) smoothly zooms in until its Parts reveal inside it, without leaving the surrounding graph behind. Scroll to zoom, drag to pan, click a node for a detail panel, and use the search box to filter and highlight by name.
 
+![The interactive HTML viewer showing examples/monorepo](docs/images/viewer.png)
+
+Double-clicking `report-generator` zooms seamlessly into its Parts, without losing the surrounding graph:
+
+![Zoomed into report-generator's Parts, with edges to neighboring Components still visible](docs/images/viewer-zoom.png)
+
 ## Contributing
 
 Git hooks live in `.githooks/`, not `.git/hooks/`. Run once per clone:
