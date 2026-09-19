@@ -1,4 +1,5 @@
 import { packGrid, packRow, type Rect, union } from "./geometry";
+import { buildAdjacency, orderByMinimizingCrossings, orderWithinGroupMinimizingCrossings } from "./order";
 import { measureWidth } from "./text";
 import type { JsonView, Payload } from "./types";
 
@@ -154,10 +155,44 @@ export function buildWorld(payload: Payload): World {
     byEnv.set(node.environment, bucket);
   }
 
-  // 2. Pack components inside each environment, then environments in a row.
-  const envNames = [...byEnv.keys()].sort((a, b) => (a ?? "").localeCompare(b ?? ""));
+  // 2. Order environments, and components within them, so that things which
+  // talk to each other land near each other by default, instead of the
+  // plain alphabetical order, which scatters connected components/
+  // environments and forces manual repositioning to untangle.
+  const idToComponentName = new Map<string, string>();
+  for (const n of global.nodes) {
+    if (n.kind === "component") idToComponentName.set(n.id, n.label);
+  }
+  const componentPairs = global.edges
+    .map((e) => ({ a: idToComponentName.get(e.from), b: idToComponentName.get(e.to) }))
+    .filter((p): p is { a: string; b: string } => p.a !== undefined && p.b !== undefined);
+  const componentAdjacency = buildAdjacency(componentPairs);
+
+  const environmentOf = (name: string) => componentsByName.get(name)!.environment;
+  const NO_ENV_KEY = String.fromCharCode(0);
+  const envKey = (env: string | null) => env ?? NO_ENV_KEY;
+  const envAdjacency = buildAdjacency(
+    componentPairs
+      .map((p) => ({ a: envKey(environmentOf(p.a)), b: envKey(environmentOf(p.b)) }))
+      .filter((p) => p.a !== p.b)
+  );
+  const envKeyToName = new Map<string, string | null>([...byEnv.keys()].map((name) => [envKey(name), name]));
+  const alphabeticalEnvKeys = [...envKeyToName.keys()].sort((a, b) => a.localeCompare(b));
+  const orderedEnvKeys = orderByMinimizingCrossings(alphabeticalEnvKeys, envAdjacency);
+  const envNames = orderedEnvKeys.map((key) => envKeyToName.get(key) as string | null);
+  const envOrderIndex = (env: string | null) => envNames.indexOf(env);
+
+  // 3. Pack components inside each environment, then environments in a row.
   const environments: EnvironmentBox[] = envNames.map((envName) => {
-    const members = byEnv.get(envName)!;
+    const rawMembers = byEnv.get(envName)!;
+    const orderedNames = orderWithinGroupMinimizingCrossings(
+      rawMembers.map((c) => c.name),
+      envOrderIndex(envName),
+      (name) => envKey(environmentOf(name)),
+      (key) => envOrderIndex(envKeyToName.get(key) as string | null),
+      componentAdjacency
+    );
+    const members = orderedNames.map((name) => componentsByName.get(name)!);
     const grid = packGrid(
       members.map((c) => ({ w: c.rect.w, h: c.rect.h })),
       COMPONENT_GAP
