@@ -1,6 +1,8 @@
+use std::io::{Read, Write};
+use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand, ValueEnum};
 
 use diagraph::{discover, render, validate};
@@ -47,6 +49,22 @@ enum Command {
         root: PathBuf,
         #[arg(short, long, default_value = "diagraph.html")]
         output: PathBuf,
+        #[command(subcommand)]
+        action: Option<ViewAction>,
+    },
+}
+
+#[derive(Subcommand)]
+enum ViewAction {
+    /// Serve the diagram over HTTP instead of writing it to a file.
+    Serve {
+        #[arg(long, default_value = ".")]
+        root: PathBuf,
+        /// Interface to bind to.
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
+        #[arg(long, default_value_t = 4000)]
+        port: u16,
     },
 }
 
@@ -67,7 +85,14 @@ fn main() -> Result<()> {
             format,
             output,
         } => cmd_render(&root, component, environment, zoom, format, output),
-        Command::View { root, output } => cmd_view(&root, &output),
+        Command::View {
+            root,
+            output,
+            action,
+        } => match action {
+            None => cmd_view(&root, &output),
+            Some(ViewAction::Serve { root, host, port }) => cmd_view_serve(&root, &host, port),
+        },
     }
 }
 
@@ -119,6 +144,51 @@ fn cmd_view(root: &Path, output: &Path) -> Result<()> {
     std::fs::write(output, html)?;
     println!("{}", output.display());
     Ok(())
+}
+
+fn cmd_view_serve(root: &Path, host: &str, port: u16) -> Result<()> {
+    let graph = discover::scan(root)?;
+    let body = render::html::render(&graph)?.into_bytes();
+
+    let listener =
+        TcpListener::bind((host, port)).with_context(|| format!("binding to {host}:{port}"))?;
+    println!(
+        "Serving diagraph at http://{}  (Ctrl+C to stop)",
+        listener.local_addr()?
+    );
+
+    for stream in listener.incoming() {
+        let Ok(mut stream) = stream else { continue };
+        serve_once(&mut stream, &body);
+    }
+    Ok(())
+}
+
+/// One-shot, single-page response: the whole diagram is static for the life
+/// of the process, so there's nothing to route and no need for a real HTTP
+/// server crate — just enough of the protocol for a browser to render it.
+fn serve_once(stream: &mut std::net::TcpStream, body: &[u8]) {
+    let mut request = Vec::new();
+    let mut chunk = [0u8; 512];
+    loop {
+        match stream.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(n) => {
+                request.extend_from_slice(&chunk[..n]);
+                if request.windows(4).any(|w| w == b"\r\n\r\n") || request.len() > 8192 {
+                    break;
+                }
+            }
+            Err(_) => break,
+        }
+    }
+    let header = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
+    );
+    let _ = stream.write_all(header.as_bytes());
+    let _ = stream.write_all(body);
+    let _ = stream.flush();
 }
 
 #[cfg(test)]
@@ -221,6 +291,21 @@ mod tests {
     fn zoom_flag_requires_component_flag() {
         let result = Cli::try_parse_from(["diagraph", "render", "--zoom"]);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn view_serve_defaults_to_localhost() {
+        let cli = Cli::try_parse_from(["diagraph", "view", "serve"]).unwrap();
+        let Command::View { action, .. } = cli.command else {
+            panic!("expected the view command")
+        };
+        match action {
+            Some(ViewAction::Serve { host, port, .. }) => {
+                assert_eq!(host, "127.0.0.1");
+                assert_eq!(port, 4000);
+            }
+            _ => panic!("expected the serve action"),
+        }
     }
 
     #[test]
