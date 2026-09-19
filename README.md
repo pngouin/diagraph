@@ -66,7 +66,7 @@ Each entry under `[[parts]]`:
 3. a Python project file's `[project].name`, or `[tool.poetry].name`
 4. `diagram.toml`'s own `name` field — only as a last resort, when none of the above exist
 
-(Why: [docs/adr/0002](docs/adr/0002-name-sourced-from-language-manifest.md) — two names for one thing drift apart over time.)
+(Why: two names for one thing drift apart over time.)
 
 Two examples from `examples/monorepo/`:
 
@@ -123,7 +123,7 @@ to_part = "fetch-thread"
 
 All of the above are hard errors — Part-level validation is exactly as strict as Component-level validation.
 
-Edges are declared **only by the caller** — a Component never declares that it's called by someone else; incoming edges are derived by inverting the graph. (Why: [docs/adr/0001](docs/adr/0001-outgoing-only-edges.md).) Unrecognized targets are errors, not silently-accepted new nodes. (Why: [docs/adr/0003](docs/adr/0003-strict-validation-on-unrecognized-targets.md).)
+Edges are declared **only by the caller** — a Component never declares that it's called by someone else; incoming edges are derived by inverting the graph. Unrecognized targets are errors, not silently-accepted new nodes.
 
 ## The four views
 
