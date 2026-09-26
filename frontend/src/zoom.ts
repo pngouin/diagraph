@@ -8,6 +8,7 @@ export interface ZoomController {
   getScale(): number;
   fitTo(rect: Rect, opts?: { animate?: boolean; padding?: number }): void;
   currentTransform(): ZoomTransform;
+  visibleRect(): Rect;
 }
 
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -56,5 +57,11 @@ export function attachZoom(svg: SVGSVGElement, viewport: SVGGElement, onTransfor
     getScale: () => current.k,
     fitTo,
     currentTransform: () => current,
+    visibleRect() {
+      const bounds = svg.getBoundingClientRect();
+      const [x0, y0] = current.invert([0, 0]);
+      const [x1, y1] = current.invert([bounds.width, bounds.height]);
+      return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+    },
   };
 }
