@@ -1,6 +1,7 @@
 import { edgeEndpoints } from "./anchors";
 import { withAlpha } from "./colors";
 import { maxGrowth, rectCenter, rectsOverlap, smoothstep, type Rect } from "./geometry";
+import { COMPONENT_FONT, ENVIRONMENT_FONT, fitText, MONO_FONT } from "./text";
 import type { ComponentNode, EndpointRef, EndpointSide, World, WorldEdge } from "./world";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -67,6 +68,23 @@ export function mount(root: SVGGElement, world: World, envColor: (env: string | 
   const revealFactors = new Map<string, number>();
   let baseScale: number | null = null;
   let focusedName: string | null = null;
+  const fittedLabels = new Map<SVGTextElement, string>();
+
+  // Text is sized in world units times --inv-zoom, so the box width available
+  // to the unscaled font is `width / invZoom`.
+  function setFittedText(text: SVGTextElement, full: string, width: number, invZoom: number, font: string) {
+    const budget = Math.round(width / invZoom);
+    const key = `${budget}\u0000${full}`;
+    if (fittedLabels.get(text) === key) return;
+    fittedLabels.set(text, key);
+    text.textContent = fitText(full, budget, font);
+  }
+
+  function titled(g: SVGGElement, name: string) {
+    const title = el("title");
+    title.textContent = name;
+    g.appendChild(title);
+  }
 
   const envFrameLayer = el("g");
   const edgeLayer = el("g");
@@ -129,6 +147,7 @@ export function mount(root: SVGGElement, world: World, envColor: (env: string | 
     label.setAttribute("fill", color);
     label.textContent = env.name ?? "no environment";
     g.append(frame, label);
+    titled(g, env.name ?? "no environment");
     g.addEventListener("click", (ev) => {
       ev.stopPropagation();
       cb.onSelect({ type: "environment", name: env.name });
@@ -207,6 +226,7 @@ export function mount(root: SVGGElement, world: World, envColor: (env: string | 
         const pg = el("g");
         pg.setAttribute("class", "part");
         pg.dataset.uid = part.uid;
+        pg.dataset.name = part.name;
         const prect = el("rect");
         prect.setAttribute("class", "part-frame");
         prect.setAttribute("rx", "6");
@@ -215,6 +235,7 @@ export function mount(root: SVGGElement, world: World, envColor: (env: string | 
         ptext.setAttribute("class", "part-label");
         ptext.textContent = part.name;
         pg.appendChild(ptext);
+        titled(pg, part.name);
         g.appendChild(pg);
 
         pg.addEventListener("click", (ev) => {
@@ -249,6 +270,7 @@ export function mount(root: SVGGElement, world: World, envColor: (env: string | 
     label.setAttribute("class", "component-label");
     label.textContent = component.name;
     g.append(label);
+    titled(g, component.name);
 
     const resizeHandle = attachResize(
       g,
@@ -400,6 +422,7 @@ export function mount(root: SVGGElement, world: World, envColor: (env: string | 
     label.setAttribute("class", "external-label");
     label.textContent = ext.name;
     g.append(diamond, label);
+    titled(g, ext.name);
     externalLayer.appendChild(g);
     externalGroups.set(ext.name, g);
     g.addEventListener("click", (ev) => {
@@ -504,6 +527,7 @@ export function mount(root: SVGGElement, world: World, envColor: (env: string | 
         const label = entry.g.querySelector<SVGTextElement>(".component-label")!;
         label.setAttribute("x", "16");
         label.setAttribute("y", component.hasParts ? "19" : String(component.rect.h / 2 + 4));
+        setFittedText(label, component.name, component.rect.w - 32, invZoom, COMPONENT_FONT);
 
         if (entry.interior) {
           const inset = { x: 16, y: 28, w: component.rect.w - 32, h: component.rect.h - 44 };
@@ -533,6 +557,7 @@ export function mount(root: SVGGElement, world: World, envColor: (env: string | 
           const ptext = pg.querySelector<SVGTextElement>(".part-label")!;
           ptext.setAttribute("x", String(part.rect.w / 2));
           ptext.setAttribute("y", String(part.rect.h / 2 + 4));
+          setFittedText(ptext, part.name, part.rect.w - 12, invZoom, MONO_FONT);
           partHandle.setAttribute("transform", `translate(${part.rect.w},${part.rect.h}) scale(${invZoom})`);
         }
       }
@@ -543,6 +568,7 @@ export function mount(root: SVGGElement, world: World, envColor: (env: string | 
       entry.g.setAttribute("transform", `translate(${env.rect.x},${env.rect.y})`);
       entry.frame.setAttribute("width", String(env.rect.w));
       entry.frame.setAttribute("height", String(env.rect.h));
+      setFittedText(entry.label, env.name ?? "no environment", env.rect.w - 40, invZoom, ENVIRONMENT_FONT);
       entry.resizeHandle.setAttribute("transform", `translate(${env.rect.w},${env.rect.h}) scale(${invZoom})`);
     }
 
@@ -677,7 +703,7 @@ export function mount(root: SVGGElement, world: World, envColor: (env: string | 
       entry.g.classList.toggle("dimmed", set !== null && !set.has(keyOf({ type: "component", name })));
       for (const [uid, { g: pg }] of entry.parts) {
         pg.classList.toggle("dimmed", set !== null && !set.has(`part:${uid}`) && !set.has(keyOf({ type: "component", name })));
-        pg.classList.toggle("search-match", searchQuery !== "" && labelMatchesSearch(pg.querySelector("text")!.textContent ?? ""));
+        pg.classList.toggle("search-match", searchQuery !== "" && labelMatchesSearch(pg.dataset.name!));
         pg.classList.toggle("selected", selection?.type === "part" && selection.uid === uid);
       }
       entry.g.classList.toggle("search-match", searchQuery !== "" && labelMatchesSearch(name));

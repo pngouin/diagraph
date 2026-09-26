@@ -1,6 +1,6 @@
 import { packGrid, packRow, type Rect, union } from "./geometry";
 import { buildAdjacency, orderByMinimizingCrossings, orderWithinGroupMinimizingCrossings } from "./order";
-import { measureWidth } from "./text";
+import { COMPONENT_FONT, measureWidth, MONO_FONT } from "./text";
 import type { JsonView, Payload } from "./types";
 
 export interface PartNode {
@@ -80,8 +80,8 @@ const ENV_GAP = 72;
 const EXTERNAL_SIZE = 52;
 const EXTERNAL_GAP = 40;
 
-function labelText(name: string, extra = 32, min = 84, max = 200): number {
-  return Math.min(max, Math.max(min, measureWidth(name) + extra));
+function labelText(name: string, font: string, extra: number, min: number, max: number): number {
+  return Math.ceil(Math.min(max, Math.max(min, measureWidth(name, font) + extra)));
 }
 
 /** Mirrors `with_remote_part_hint` on the Rust side: a zoomed-view boundary
@@ -118,9 +118,9 @@ export function buildWorld(payload: Payload): World {
     let h: number;
     let partNodes: PartNode[] = [];
     if (hasParts) {
-      const sizes = parts.map((p) => ({ w: labelText(p.label, 18, 60, 160), h: PART_H }));
+      const sizes = parts.map((p) => ({ w: labelText(p.label, MONO_FONT, 18, 60, 260), h: PART_H }));
       const grid = packGrid(sizes, PART_GAP);
-      w = Math.max(grid.size.w + COMPONENT_PAD * 2, labelText(node.label, 32, COMPONENT_MIN_W));
+      w = Math.max(grid.size.w + COMPONENT_PAD * 2, labelText(node.label, COMPONENT_FONT, 36, COMPONENT_MIN_W, 360));
       h = COMPONENT_HEADER_H + grid.size.h + COMPONENT_PAD * 2;
       partNodes = parts.map((p, i) => {
         const pos = grid.positions[i]!;
@@ -138,7 +138,7 @@ export function buildWorld(payload: Payload): World {
         };
       });
     } else {
-      w = labelText(node.label, 32, COMPONENT_MIN_W);
+      w = labelText(node.label, COMPONENT_FONT, 36, COMPONENT_MIN_W, 360);
       h = COMPONENT_PLAIN_H;
     }
 
