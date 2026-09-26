@@ -117,6 +117,8 @@ export function mount(root: SVGGElement, world: World, envColor: (env: string | 
     lastAnchor: { x: number; y: number };
     /** Which side this edge bows to, and how many lanes out, among edges joining the same two nodes. */
     lane: { side: 1 | -1; rank: number };
+    /** Label extent at --inv-zoom 1, measured once; the text never changes and scales linearly. */
+    labelSize: { w: number; h: number; ascent: number } | null;
   }
   const edgeLines = new Map<string, EdgeLineEntry>();
 
@@ -452,6 +454,7 @@ export function mount(root: SVGGElement, world: World, envColor: (env: string | 
       labelOffset: null,
       lastAnchor: { x: 0, y: 0 },
       lane: { side: 1, rank: 0 },
+      labelSize: null,
     };
     edgeLines.set(edge.id, entry);
 
@@ -504,6 +507,20 @@ export function mount(root: SVGGElement, world: World, envColor: (env: string | 
       const alongCanonical = keyOf(entry.edge.from.ref) === canonicalFrom ? 1 : -1;
       entry.lane = { side: (k % 2 === 0 ? alongCanonical : -alongCanonical) as 1 | -1, rank: Math.floor(k / 2) };
     });
+  }
+
+  // A hidden SVG measures as zero, so only a real measurement is cached.
+  function labelRectAt(entry: EdgeLineEntry, lx: number, ly: number, invZoom: number): Rect {
+    if (!entry.labelSize && entry.label) {
+      const bbox = entry.label.getBBox();
+      if (bbox.width > 0) {
+        const baseline = Number(entry.label.getAttribute("y") ?? "0");
+        entry.labelSize = { w: bbox.width / invZoom, h: bbox.height / invZoom, ascent: (baseline - bbox.y) / invZoom };
+      }
+    }
+    const size = entry.labelSize ?? { w: 0, h: 0, ascent: 0 };
+    const w = size.w * invZoom;
+    return { x: lx - w / 2 - 4, y: ly - size.ascent * invZoom - 2, w: w + 8, h: size.h * invZoom + 4 };
   }
 
   function tick() {
@@ -641,23 +658,23 @@ export function mount(root: SVGGElement, world: World, envColor: (env: string | 
           const ly = my + entry.labelOffset.dy;
           label.setAttribute("x", String(lx));
           label.setAttribute("y", String(ly));
-          const bbox = label.getBBox();
-          labelRect = { x: bbox.x - 4, y: bbox.y - 2, w: bbox.width + 8, h: bbox.height + 4 };
+          labelRect = labelRectAt(entry, lx, ly, invZoom);
         } else {
           // Auto-placed: sit just outside the path's own curve, close enough
           // to read as belonging to this edge; nudge further only to clear
           // another label.
           let labelBow = bow + entry.lane.side * 14;
+          let lx = mx;
+          let ly = my;
           for (let attempt = 0; attempt < 4; attempt++) {
-            const lx = mx - dy * (labelBow / dist);
-            const ly = my + dx * (labelBow / dist);
-            label.setAttribute("x", String(lx));
-            label.setAttribute("y", String(ly));
-            const bbox = label.getBBox();
-            labelRect = { x: bbox.x - 4, y: bbox.y - 2, w: bbox.width + 8, h: bbox.height + 4 };
+            lx = mx - dy * (labelBow / dist);
+            ly = my + dx * (labelBow / dist);
+            labelRect = labelRectAt(entry, lx, ly, invZoom);
             if (!labelObstacles.some((o) => rectsOverlap(labelRect, o))) break;
             labelBow += entry.lane.side * 14;
           }
+          label.setAttribute("x", String(lx));
+          label.setAttribute("y", String(ly));
         }
         labelBg.setAttribute("x", String(labelRect.x));
         labelBg.setAttribute("y", String(labelRect.y));
