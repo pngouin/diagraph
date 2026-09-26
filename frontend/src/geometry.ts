@@ -90,6 +90,10 @@ export function maxGrowth(rect: Rect, siblings: Rect[], margin: number): { w: nu
   return { w: maxW, h: maxH };
 }
 
+export function gridColumns(n: number): number {
+  return Math.max(1, Math.ceil(Math.sqrt(n)));
+}
+
 /** Packs same-sized-cell boxes into a grid; returns each box's top-left offset plus total content size. */
 export function packGrid(
   sizes: { w: number; h: number }[],
@@ -97,7 +101,7 @@ export function packGrid(
 ): { positions: Point[]; size: { w: number; h: number } } {
   const n = sizes.length;
   if (n === 0) return { positions: [], size: { w: 0, h: 0 } };
-  const cols = Math.max(1, Math.ceil(Math.sqrt(n)));
+  const cols = gridColumns(n);
   const rows = Math.ceil(n / cols);
   const colWidths = new Array(cols).fill(0);
   const rowHeights = new Array(rows).fill(0);

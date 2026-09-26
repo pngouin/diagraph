@@ -1,3 +1,5 @@
+import { gridColumns } from "./geometry";
+
 /** Adjacency weights keyed by item key; symmetric (bumping a->b also bumps b->a). */
 export type Adjacency = Map<string, Map<string, number>>;
 
@@ -117,7 +119,7 @@ function arrangementCostWithinGroup(
   groupOrderIndex: (group: string) => number,
   adjacency: Adjacency
 ): number {
-  const n = order.length;
+  const cols = gridColumns(order.length);
   const index = new Map(order.map((key, i) => [key, i]));
   let cost = 0;
   for (const key of order) {
@@ -126,8 +128,12 @@ function arrangementCostWithinGroup(
     if (!neighbors) continue;
     for (const [other, weight] of neighbors) {
       const oi = index.get(other);
-      const target = oi ?? (groupOrderIndex(groupOf(other)) < thisGroupIndex ? 0 : n - 1);
-      cost += weight * Math.abs(ki - target);
+      if (oi === undefined) {
+        const targetCol = groupOrderIndex(groupOf(other)) < thisGroupIndex ? 0 : cols - 1;
+        cost += weight * Math.abs((ki % cols) - targetCol);
+      } else {
+        cost += weight * (Math.abs((ki % cols) - (oi % cols)) + Math.abs(Math.floor(ki / cols) - Math.floor(oi / cols)));
+      }
     }
   }
   return cost;
@@ -136,10 +142,12 @@ function arrangementCostWithinGroup(
 /**
  * Same idea as `orderByMinimizingCrossings`, for items nested inside a fixed
  * outer ordering (e.g. components within their environment's place in the
- * environment row). A same-group neighbor pulls toward its actual position;
- * a neighbor in another group only contributes a direction — toward index 0
- * if its group sits earlier in `groupOrderIndex`, otherwise toward the last
- * index — since its exact position in a different group isn't comparable.
+ * environment row). Positions are cells of the `packGrid` the order is laid
+ * out in, so distance is counted in grid cells, not list slots. A same-group
+ * neighbor pulls toward its actual cell; a neighbor in another group only
+ * contributes a direction — toward the first column if its group sits
+ * earlier in `groupOrderIndex`, otherwise toward the last column — since its
+ * exact position in a different group isn't comparable.
  */
 export function orderWithinGroupMinimizingCrossings(
   keys: string[],
@@ -148,7 +156,7 @@ export function orderWithinGroupMinimizingCrossings(
   groupOrderIndex: (group: string) => number,
   adjacency: Adjacency
 ): string[] {
-  if (keys.length <= 2) return [...keys];
+  if (keys.length <= 1) return [...keys];
   const cost = (order: string[]) =>
     arrangementCostWithinGroup(order, thisGroupIndex, groupOf, groupOrderIndex, adjacency);
   const seeds = [[...keys].sort((a, b) => a.localeCompare(b)), [...keys].sort((a, b) => b.localeCompare(a))];
