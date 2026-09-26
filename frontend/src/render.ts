@@ -14,6 +14,7 @@ const REVEAL_END_MULT = 4.6;
 // How far a user-dragged edge label may stray from its edge's midpoint —
 // enough to dodge an overlap, not enough to read as detached from the edge.
 const MAX_LABEL_DRAG = 120;
+const PARALLEL_SPACING = 18;
 
 export type SelectableRef = EndpointRef | { type: "environment"; name: string | null };
 
@@ -114,6 +115,8 @@ export function mount(root: SVGGElement, world: World, envColor: (env: string | 
     labelOffset: { dx: number; dy: number } | null;
     /** Edge midpoint as of the last tick, so a fresh drag can seed labelOffset without a jump. */
     lastAnchor: { x: number; y: number };
+    /** Which side this edge bows to, and how many lanes out, among edges joining the same two nodes. */
+    lane: { side: 1 | -1; rank: number };
   }
   const edgeLines = new Map<string, EdgeLineEntry>();
 
@@ -441,7 +444,15 @@ export function mount(root: SVGGElement, world: World, envColor: (env: string | 
     path.setAttribute("class", `edge edge-${edge.scope}` + (edge.crossEnvironment ? " cross-env" : ""));
     (edge.scope === "part-internal" ? internalEdgeLayer : edgeLayer).appendChild(path);
 
-    const entry: EdgeLineEntry = { path, label: null, labelBg: null, edge, labelOffset: null, lastAnchor: { x: 0, y: 0 } };
+    const entry: EdgeLineEntry = {
+      path,
+      label: null,
+      labelBg: null,
+      edge,
+      labelOffset: null,
+      lastAnchor: { x: 0, y: 0 },
+      lane: { side: 1, rank: 0 },
+    };
     edgeLines.set(edge.id, entry);
 
     if (edge.label && edge.scope !== "part-internal") {
@@ -474,6 +485,25 @@ export function mount(root: SVGGElement, world: World, envColor: (env: string | 
         cb.requestTick();
       });
     }
+  }
+
+  // The bow's perpendicular flips with edge direction, so sides are assigned
+  // in the frame of the pair's first edge: a lone edge keeps side +1, and an
+  // A→B / B→A pair still lands on opposite sides.
+  const parallelGroups = new Map<string, EdgeLineEntry[]>();
+  for (const entry of edgeLines.values()) {
+    const ends = [keyOf(entry.edge.from.ref), keyOf(entry.edge.to.ref)].sort();
+    const pair = ends.join("\u0000");
+    const group = parallelGroups.get(pair);
+    if (group) group.push(entry);
+    else parallelGroups.set(pair, [entry]);
+  }
+  for (const group of parallelGroups.values()) {
+    const canonicalFrom = keyOf(group[0]!.edge.from.ref);
+    group.forEach((entry, k) => {
+      const alongCanonical = keyOf(entry.edge.from.ref) === canonicalFrom ? 1 : -1;
+      entry.lane = { side: (k % 2 === 0 ? alongCanonical : -alongCanonical) as 1 | -1, rank: Math.floor(k / 2) };
+    });
   }
 
   function tick() {
@@ -598,7 +628,7 @@ export function mount(root: SVGGElement, world: World, envColor: (env: string | 
       const dx = b.x - a.x;
       const dy = b.y - a.y;
       const dist = Math.hypot(dx, dy) || 1;
-      const bow = Math.min(40, dist * 0.2);
+      const bow = entry.lane.side * (Math.min(40, dist * 0.2) + entry.lane.rank * PARALLEL_SPACING);
       const cx = mx - dy * (bow / dist);
       const cy = my + dx * (bow / dist);
       path.setAttribute("d", `M ${a.x} ${a.y} Q ${cx} ${cy} ${b.x} ${b.y}`);
@@ -617,7 +647,7 @@ export function mount(root: SVGGElement, world: World, envColor: (env: string | 
           // Auto-placed: sit just outside the path's own curve, close enough
           // to read as belonging to this edge; nudge further only to clear
           // another label.
-          let labelBow = bow + 14;
+          let labelBow = bow + entry.lane.side * 14;
           for (let attempt = 0; attempt < 4; attempt++) {
             const lx = mx - dy * (labelBow / dist);
             const ly = my + dx * (labelBow / dist);
@@ -626,7 +656,7 @@ export function mount(root: SVGGElement, world: World, envColor: (env: string | 
             const bbox = label.getBBox();
             labelRect = { x: bbox.x - 4, y: bbox.y - 2, w: bbox.width + 8, h: bbox.height + 4 };
             if (!labelObstacles.some((o) => rectsOverlap(labelRect, o))) break;
-            labelBow += 14;
+            labelBow += entry.lane.side * 14;
           }
         }
         labelBg.setAttribute("x", String(labelRect.x));
