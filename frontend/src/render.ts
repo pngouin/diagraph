@@ -1,7 +1,8 @@
 import { edgeEndpoints } from "./anchors";
 import { withAlpha } from "./colors";
-import { maxGrowth, rectCenter, rectsOverlap, smoothstep, type Rect } from "./geometry";
-import { COMPONENT_FONT, ENVIRONMENT_FONT, fitText, MONO_FONT } from "./text";
+import { maxGrowth, rectCenter, smoothstep, type Rect } from "./geometry";
+import { curvePolyline, placeLabel, type Curve, type Polyline } from "./labels";
+import { COMPONENT_FONT, ENVIRONMENT_FONT, fitText, measureWidth, MONO_FONT } from "./text";
 import type { ComponentNode, EndpointRef, EndpointSide, World, WorldEdge } from "./world";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -119,6 +120,8 @@ export function mount(root: SVGGElement, world: World, envColor: (env: string | 
     lane: { side: 1 | -1; rank: number };
     /** Label extent at --inv-zoom 1, measured once; the text never changes and scales linearly. */
     labelSize: { w: number; h: number; ascent: number } | null;
+    /** Candidate chosen last tick, so placement can prefer to stay put. */
+    labelKey: number | null;
   }
   const edgeLines = new Map<string, EdgeLineEntry>();
 
@@ -455,6 +458,7 @@ export function mount(root: SVGGElement, world: World, envColor: (env: string | 
       lastAnchor: { x: 0, y: 0 },
       lane: { side: 1, rank: 0 },
       labelSize: null,
+      labelKey: null,
     };
     edgeLines.set(edge.id, entry);
 
@@ -510,7 +514,8 @@ export function mount(root: SVGGElement, world: World, envColor: (env: string | 
   }
 
   // A hidden SVG measures as zero, so only a real measurement is cached.
-  function labelRectAt(entry: EdgeLineEntry, lx: number, ly: number, invZoom: number): Rect {
+  // The padded background box, and how far below its top the text baseline sits.
+  function labelBox(entry: EdgeLineEntry, invZoom: number): { w: number; h: number; baseline: number } {
     if (!entry.labelSize && entry.label) {
       const bbox = entry.label.getBBox();
       if (bbox.width > 0) {
@@ -519,8 +524,21 @@ export function mount(root: SVGGElement, world: World, envColor: (env: string | 
       }
     }
     const size = entry.labelSize ?? { w: 0, h: 0, ascent: 0 };
-    const w = size.w * invZoom;
-    return { x: lx - w / 2 - 4, y: ly - size.ascent * invZoom - 2, w: w + 8, h: size.h * invZoom + 4 };
+    return { w: size.w * invZoom + 8, h: size.h * invZoom + 4, baseline: size.ascent * invZoom + 2 };
+  }
+
+  function labelObstacleNodes(invZoom: number): Rect[] {
+    const nodes: Rect[] = [];
+    for (const env of world.environments) {
+      const titleW = measureWidth(env.name ?? "no environment", ENVIRONMENT_FONT) * invZoom + 24;
+      nodes.push({ x: env.rect.x, y: env.rect.y, w: Math.min(env.rect.w, titleW), h: 32 });
+      for (const component of env.components) nodes.push(component.rect);
+    }
+    for (const ext of world.externals) {
+      const nameW = measureWidth(ext.name, MONO_FONT) * invZoom;
+      nodes.push(ext.rect, { x: ext.rect.x + ext.rect.w / 2 - nameW / 2, y: ext.rect.y + ext.rect.h, w: nameW, h: 20 });
+    }
+    return nodes;
   }
 
   function tick() {
@@ -624,12 +642,8 @@ export function mount(root: SVGGElement, world: World, envColor: (env: string | 
       label.setAttribute("y", String(ext.rect.y + ext.rect.h + 16));
     }
 
-    // Labels stay close to their own edge even if that means sitting over a
-    // node — legibility of "what talks to what" beats dodging frames. Grows
-    // as labels are placed below, so a later label still avoids stacking
-    // directly on an earlier one.
-    const labelObstacles: Rect[] = [];
-
+    const curves = new Map<EdgeLineEntry, Curve>();
+    const edgeLinesDrawn: Polyline[] = [];
     for (const entry of edgeLines.values()) {
       const { path, label, labelBg, edge } = entry;
       const opacity =
@@ -646,42 +660,46 @@ export function mount(root: SVGGElement, world: World, envColor: (env: string | 
       const dy = b.y - a.y;
       const dist = Math.hypot(dx, dy) || 1;
       const bow = entry.lane.side * (Math.min(40, dist * 0.2) + entry.lane.rank * PARALLEL_SPACING);
-      const cx = mx - dy * (bow / dist);
-      const cy = my + dx * (bow / dist);
-      path.setAttribute("d", `M ${a.x} ${a.y} Q ${cx} ${cy} ${b.x} ${b.y}`);
+      const curve = { a, c: { x: mx - dy * (bow / dist), y: my + dx * (bow / dist) }, b };
+      path.setAttribute("d", `M ${a.x} ${a.y} Q ${curve.c.x} ${curve.c.y} ${b.x} ${b.y}`);
       entry.lastAnchor = { x: mx, y: my };
-      if (label && labelBg) {
-        let labelRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
-        if (entry.labelOffset) {
-          // User-placed: honor it (already clamped to MAX_LABEL_DRAG at drag time).
-          const lx = mx + entry.labelOffset.dx;
-          const ly = my + entry.labelOffset.dy;
-          label.setAttribute("x", String(lx));
-          label.setAttribute("y", String(ly));
-          labelRect = labelRectAt(entry, lx, ly, invZoom);
-        } else {
-          // Auto-placed: sit just outside the path's own curve, close enough
-          // to read as belonging to this edge; nudge further only to clear
-          // another label.
-          let labelBow = bow + entry.lane.side * 14;
-          let lx = mx;
-          let ly = my;
-          for (let attempt = 0; attempt < 4; attempt++) {
-            lx = mx - dy * (labelBow / dist);
-            ly = my + dx * (labelBow / dist);
-            labelRect = labelRectAt(entry, lx, ly, invZoom);
-            if (!labelObstacles.some((o) => rectsOverlap(labelRect, o))) break;
-            labelBow += entry.lane.side * 14;
-          }
-          label.setAttribute("x", String(lx));
-          label.setAttribute("y", String(ly));
-        }
-        labelBg.setAttribute("x", String(labelRect.x));
-        labelBg.setAttribute("y", String(labelRect.y));
-        labelBg.setAttribute("width", String(labelRect.w));
-        labelBg.setAttribute("height", String(labelRect.h));
-        labelObstacles.push(labelRect);
+      curves.set(entry, curve);
+      if (opacity > 0) edgeLinesDrawn.push(curvePolyline(curve));
+    }
+
+    // Labels may still land on a node or across an edge when nothing near
+    // their own edge is clear — staying readable as "this edge's label" wins.
+    const obstacles = { labels: [] as Rect[], nodes: labelObstacleNodes(invZoom), edges: edgeLinesDrawn };
+    const labelled = [...edgeLines.values()].filter((entry) => entry.label && entry.labelBg);
+    const chordLength = (entry: EdgeLineEntry) => {
+      const { a, b } = curves.get(entry)!;
+      return Math.hypot(b.x - a.x, b.y - a.y);
+    };
+    // User-placed labels are fixed, so they go first as obstacles; then the
+    // shortest edges, which have the least room to shift their label along.
+    labelled.sort((p, q) => Number(q.labelOffset !== null) - Number(p.labelOffset !== null) || chordLength(p) - chordLength(q));
+    for (const entry of labelled) {
+      const label = entry.label!;
+      const labelBg = entry.labelBg!;
+      const box = labelBox(entry, invZoom);
+      let rect: Rect;
+      if (entry.labelOffset) {
+        // Already clamped to MAX_LABEL_DRAG at drag time.
+        const lx = entry.lastAnchor.x + entry.labelOffset.dx;
+        const ly = entry.lastAnchor.y + entry.labelOffset.dy;
+        rect = { x: lx - box.w / 2, y: ly - box.baseline, w: box.w, h: box.h };
+      } else {
+        const placement = placeLabel(curves.get(entry)!, entry.lane.side, box, invZoom, obstacles, entry.labelKey);
+        entry.labelKey = placement.key;
+        rect = placement.rect;
       }
+      label.setAttribute("x", String(rect.x + rect.w / 2));
+      label.setAttribute("y", String(rect.y + box.baseline));
+      labelBg.setAttribute("x", String(rect.x));
+      labelBg.setAttribute("y", String(rect.y));
+      labelBg.setAttribute("width", String(rect.w));
+      labelBg.setAttribute("height", String(rect.h));
+      obstacles.labels.push(rect);
     }
 
     applyDimming();
