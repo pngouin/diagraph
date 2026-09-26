@@ -16,8 +16,6 @@ export type Action =
   | { kind: "select"; node: NodeKind; index: number }
   | { kind: "clickEmpty"; x: number; y: number };
 
-/** A node the user just zoomed at, which must not stay faded. */
-export type Focus = { type: "component" | "external"; name: string; via: "dblclick" | "wheel" } | null;
 
 const permille = fc.integer({ min: 0, max: 1000 });
 const delta = fc.integer({ min: -400, max: 400 });
@@ -46,15 +44,9 @@ export const actionArb: fc.Arbitrary<Action> = fc.oneof(
   { weight: 1, arbitrary: fc.record({ kind: fc.constant("clickEmpty" as const), x: permille, y: permille }) }
 );
 
-interface Target {
-  x: number;
-  y: number;
-  hit: Focus;
-}
-
 /** Picks the `index`-th (mod count) on-screen node of a kind and a client point
- * on it — its resize handle when `handle` — plus what that point actually hits. */
-async function locate(page: Page, kind: NodeKind, index: number, handle: boolean): Promise<Target | null> {
+ * on it — its resize handle when `handle`. */
+async function locate(page: Page, kind: NodeKind, index: number, handle: boolean): Promise<{ x: number; y: number } | null> {
   return page.evaluate(
     ({ kind, index, handle }) => {
       const canvas = document.getElementById("canvas")!.getBoundingClientRect();
@@ -78,29 +70,9 @@ async function locate(page: Page, kind: NodeKind, index: number, handle: boolean
         const y = kind === "environment" && !handle ? y0 + Math.min(10, (y1 - y0) / 4) : (y0 + y1) / 2;
         candidates.push({ x: (x0 + x1) / 2, y });
       }
-      if (candidates.length === 0) return null;
-      const p = candidates[index % candidates.length]!;
-      const hitEl = document.elementFromPoint(p.x, p.y)?.closest(".component, .part, .external, .environment");
-      const owner = hitEl?.classList.contains("part") ? hitEl.closest(".component") : hitEl;
-      const hit = owner?.classList.contains("component")
-        ? { type: "component" as const, name: (owner as SVGGElement).dataset.name!, via: "dblclick" as const }
-        : null;
-      return { ...p, hit };
+      return candidates.length === 0 ? null : candidates[index % candidates.length]!;
     },
     { kind, index, handle }
-  );
-}
-
-async function nodeAt(page: Page, x: number, y: number): Promise<Focus> {
-  return page.evaluate(
-    ({ x, y }) => {
-      const hitEl = document.elementFromPoint(x, y)?.closest(".component, .part, .external");
-      const owner = hitEl?.classList.contains("part") ? hitEl.closest(".component") : hitEl;
-      if (!owner) return null;
-      const type = owner.classList.contains("external") ? ("external" as const) : ("component" as const);
-      return { type, name: (owner as SVGGElement).dataset.name!, via: "wheel" as const };
-    },
-    { x, y }
   );
 }
 
@@ -118,45 +90,40 @@ async function dragFrom(page: Page, x: number, y: number, dx: number, dy: number
   await page.mouse.up();
 }
 
-/** Performs one action through real input events; returns the component a
- * double-click should have focused, if any. */
-export async function perform(page: Page, action: Action): Promise<Focus> {
+export async function perform(page: Page, action: Action): Promise<void> {
   switch (action.kind) {
     case "wheel": {
       const p = await canvasPoint(page, action.x, action.y);
-      const hit = await nodeAt(page, p.x, p.y);
       await page.mouse.move(p.x, p.y);
       await page.mouse.wheel(0, action.deltaY);
-      return hit;
+      return;
     }
     case "zoomAt": {
       const t = await locate(page, action.node, action.index, false);
-      if (!t) return null;
-      const hit = await nodeAt(page, t.x, t.y);
+      if (!t) return;
       await page.mouse.move(t.x, t.y);
       await page.mouse.wheel(0, action.deltaY);
-      return hit;
+      return;
     }
     case "pan": {
       const p = await canvasPoint(page, action.x, action.y);
       await dragFrom(page, p.x, p.y, action.dx, action.dy);
-      return null;
+      return;
     }
     case "dblclick": {
       const t = await locate(page, action.node, action.index, false);
-      if (!t) return null;
-      await page.mouse.dblclick(t.x, t.y);
-      return t.hit;
+      if (t) await page.mouse.dblclick(t.x, t.y);
+      return;
     }
     case "drag": {
       const t = await locate(page, action.node, action.index, false);
       if (t) await dragFrom(page, t.x, t.y, action.dx, action.dy);
-      return null;
+      return;
     }
     case "resize": {
       const t = await locate(page, action.node, action.index, true);
       if (t) await dragFrom(page, t.x, t.y, action.dx, action.dy);
-      return null;
+      return;
     }
     case "search": {
       const names = await page.evaluate(() =>
@@ -165,20 +132,20 @@ export async function perform(page: Page, action: Action): Promise<Focus> {
       const chars = [...(names[action.index % names.length] ?? "")];
       const start = chars.length === 0 ? 0 : action.start % chars.length;
       await page.fill("#search", chars.slice(start, start + action.length).join(""));
-      return null;
+      return;
     }
     case "clearSearch":
       await page.fill("#search", "");
-      return null;
+      return;
     case "select": {
       const t = await locate(page, action.node, action.index, false);
       if (t) await page.mouse.click(t.x, t.y);
-      return null;
+      return;
     }
     case "clickEmpty": {
       const p = await canvasPoint(page, action.x, action.y);
       await page.mouse.click(p.x, p.y);
-      return null;
+      return;
     }
   }
 }

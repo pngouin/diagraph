@@ -12,8 +12,8 @@ import { regressions } from "./regressions";
 
 const FAILURES_DIR = fileURLToPath(new URL("../fuzz-failures", import.meta.url));
 
-// Animated zoom matters: the first dblclick-focus bug only showed on the
-// transition's early frames, which reduced motion skips entirely.
+// Animated zoom matters: tick() runs on every transition frame, and state
+// derived from intermediate frames is invisible under reduced motion.
 const viewportArb: fc.Arbitrary<ViewportSize> = fc
   .tuple(fc.constantFrom([1400, 900], [1024, 768], [390, 844]), fc.boolean())
   .map(([[width, height], animate]) => ({ width: width!, height: height!, animate }));
@@ -53,15 +53,15 @@ async function runCase(
     await page.goto(pathToFileURL(html).href);
     await nextFrame(page);
 
-    const initial = await page.evaluate(pageInvariants, { focus: null, initial: true });
+    const initial = await page.evaluate(pageInvariants, { initial: true });
     failures.push(...initial.map((f) => `[initial] ${f}`));
 
     for (const [i, action] of actions.entries()) {
       if (failures.length > 0) break;
-      const focus = await perform(page, action);
+      await perform(page, action);
       if (viewport.animate && action.kind === "dblclick") await page.waitForTimeout(FIT_TRANSITION_MS + 100);
       await nextFrame(page);
-      const after = await page.evaluate(pageInvariants, { focus, initial: false });
+      const after = await page.evaluate(pageInvariants, { initial: false });
       failures.push(...after.map((f) => `[after action ${i} ${JSON.stringify(action)}] ${f}`));
     }
 
@@ -88,7 +88,8 @@ test("viewer invariants hold for random diagrams and interactions", async ({ bro
   );
 
   const result = await fc.check(property, {
-    numRuns: Number(process.env.FUZZ_RUNS ?? 50),
+    // fast-check counts `examples` toward numRuns.
+    numRuns: Number(process.env.FUZZ_RUNS ?? 50) + regressions.length,
     seed: process.env.FUZZ_SEED === undefined ? undefined : Number(process.env.FUZZ_SEED),
     path: process.env.FUZZ_PATH,
     examples: regressions,

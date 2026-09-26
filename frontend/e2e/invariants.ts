@@ -1,12 +1,9 @@
-import type { Focus } from "./actions";
-
 export interface InvariantArgs {
-  focus: Focus;
   initial: boolean;
 }
 
 /** Runs inside the page (serialized by Playwright), so it must stay self-contained. */
-export function pageInvariants({ focus, initial }: InvariantArgs): string[] {
+export function pageInvariants({ initial }: InvariantArgs): string[] {
   const out: string[] = [];
   const TOL = 1;
   const svg = document.getElementById("canvas")!;
@@ -104,9 +101,9 @@ export function pageInvariants({ focus, initial }: InvariantArgs): string[] {
     }
   }
 
-  // Rule 2: what the user zoomed into is at full opacity. The `opacity`
-  // attribute carries the ambient fade; the `.dimmed` class is selection/search
-  // highlighting, which is only a bug when nothing is selected or searched.
+  // Rule 2: nothing is faded, and nothing is dimmed unless a selection or
+  // search asks for it. Parts and part-internal edges are exempt from the
+  // opacity check: their opacity is the zoom-driven reveal.
   const noHighlight =
     (document.getElementById("search") as HTMLInputElement).value.trim() === "" &&
     document.querySelector("#inspector-body .inspector-empty") !== null;
@@ -115,29 +112,12 @@ export function pageInvariants({ focus, initial }: InvariantArgs): string[] {
     for (let n: Element | null = el; n && n !== svg; n = n.parentElement) o *= parseFloat(n.getAttribute("opacity") ?? "1");
     return o;
   };
-  const checkFocused = (g: SVGGElement, why: string) => {
-    const label = `${g.classList.contains("external") ? "external" : "component"} ${JSON.stringify(g.dataset.name)}`;
-    const o = fade(g);
-    if (o < 0.99) out.push(`rule2: ${label} (${why}) faded to opacity ${o.toFixed(2)}`);
-    if (noHighlight && g.closest(".dimmed")) out.push(`rule2: ${label} (${why}) dimmed with no selection or search`);
-  };
-  const canvas = svg.getBoundingClientRect();
-  const coverage = (g: SVGGElement) => {
-    const r = g.querySelector(":scope > .component-frame, :scope > polygon")!.getBoundingClientRect();
-    const w = Math.min(r.right, canvas.right) - Math.max(r.left, canvas.left);
-    const h = Math.min(r.bottom, canvas.bottom) - Math.max(r.top, canvas.top);
-    return w > 0 && h > 0 ? (w * h) / (canvas.width * canvas.height) : 0;
-  };
-  const nodes = [...document.querySelectorAll<SVGGElement>(".component, .external")];
-  if (focus) {
-    const g = nodes.find((n) => n.classList.contains(focus.type) && n.dataset.name === focus.name);
-    // A wheel zoom only says what the user is looking at once the node fills a
-    // real share of the screen; 8x max zoom caps a small component near 25%.
-    if (g && focus.via === "dblclick") checkFocused(g, "double-clicked");
-    if (g && focus.via === "wheel" && coverage(g) >= 0.15) checkFocused(g, `wheel-zoomed at, covers ${Math.round(coverage(g) * 100)}%`);
+  for (const el of document.querySelectorAll<SVGElement>(".component, .external, .edge-boundary")) {
+    const label = el.classList.contains("edge") ? "edge" : `${el.getAttribute("class")} ${JSON.stringify(el.dataset.name)}`;
+    const o = fade(el);
+    if (o < 0.99) out.push(`rule2: ${label} faded to opacity ${o.toFixed(2)}`);
+    if (noHighlight && el.closest(".dimmed")) out.push(`rule2: ${label} dimmed with no selection or search`);
   }
-  const covering = nodes.filter((g) => coverage(g) >= 0.5);
-  if (covering.length === 1) checkFocused(covering[0]!, "covers ≥50% of the canvas");
 
   return out;
 }
