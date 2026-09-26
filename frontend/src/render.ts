@@ -335,6 +335,7 @@ export function mount(root: SVGGElement, world: World, envColor: (env: string | 
     let start: { x: number; y: number } | null = null;
     let moved = false;
     g.addEventListener("pointerdown", (ev) => {
+      if (ev.button !== 0) return;
       ev.stopPropagation();
       start = { x: ev.clientX, y: ev.clientY };
       moved = false;
@@ -393,6 +394,7 @@ export function mount(root: SVGGElement, world: World, envColor: (env: string | 
 
     let start: { x: number; y: number; w: number; h: number } | null = null;
     handle.addEventListener("pointerdown", (ev) => {
+      if (ev.button !== 0) return;
       ev.stopPropagation();
       const current = getCurrentSize();
       start = { x: ev.clientX, y: ev.clientY, w: current.w, h: current.h };

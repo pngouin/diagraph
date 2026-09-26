@@ -20,6 +20,7 @@ export function attachZoom(svg: SVGSVGElement, viewport: SVGGElement, onTransfor
     .scaleExtent([0.05, 8])
     .filter((event: MouseEvent | WheelEvent) => {
       if (event.type === "dblclick") return false;
+      if (event.button === 2) return true;
       if (event.button) return false;
       if (event.ctrlKey && event.type !== "wheel") return false;
       const target = event.target as Element | null;
@@ -35,6 +36,7 @@ export function attachZoom(svg: SVGSVGElement, viewport: SVGGElement, onTransfor
     });
 
   selection.call(behavior);
+  svg.addEventListener("contextmenu", (ev) => ev.preventDefault());
 
   function fitTo(rect: Rect, opts: { animate?: boolean; padding?: number } = {}) {
     const padding = opts.padding ?? 56;
