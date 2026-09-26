@@ -1,7 +1,9 @@
-import { edgeEndpoints } from "./anchors";
+import { edgeEndpoints, worldRectOfPart } from "./anchors";
 import { withAlpha } from "./colors";
 import { maxGrowth, rectCenter, smoothstep, type Rect } from "./geometry";
-import { curvePolyline, placeLabel, type Curve, type Polyline } from "./labels";
+import { curvePolyline, type Curve, type Polyline } from "./curves";
+import { placeLabel } from "./labels";
+import { bowCurve, chooseShift, memberBow, shiftOf, type RouteMember, type RouteObstacle } from "./routing";
 import { COMPONENT_FONT, ENVIRONMENT_FONT, fitText, measureWidth, MONO_FONT } from "./text";
 import type { ComponentNode, EndpointRef, EndpointSide, World, WorldEdge } from "./world";
 
@@ -117,7 +119,9 @@ export function mount(root: SVGGElement, world: World, envColor: (env: string | 
     /** Edge midpoint as of the last tick, so a fresh drag can seed labelOffset without a jump. */
     lastAnchor: { x: number; y: number };
     /** Which side this edge bows to, and how many lanes out, among edges joining the same two nodes. */
-    lane: { side: 1 | -1; rank: number };
+    lane: { side: 1 | -1; rank: number; along: 1 | -1 };
+    /** Obstacle keys this edge may pass through: its endpoints, their environments, its anchor parts. */
+    touches: Set<string>;
     /** Label extent at --inv-zoom 1, measured once; the text never changes and scales linearly. */
     labelSize: { w: number; h: number; ascent: number } | null;
     /** Candidate chosen last tick, so placement can prefer to stay put. */
@@ -456,7 +460,8 @@ export function mount(root: SVGGElement, world: World, envColor: (env: string | 
       edge,
       labelOffset: null,
       lastAnchor: { x: 0, y: 0 },
-      lane: { side: 1, rank: 0 },
+      lane: { side: 1, rank: 0, along: 1 },
+      touches: touchKeys(edge),
       labelSize: null,
       labelKey: null,
     };
@@ -497,6 +502,19 @@ export function mount(root: SVGGElement, world: World, envColor: (env: string | 
   // The bow's perpendicular flips with edge direction, so sides are assigned
   // in the frame of the pair's first edge: a lone edge keeps side +1, and an
   // A→B / B→A pair still lands on opposite sides.
+  function touchKeys(edge: WorldEdge): Set<string> {
+    const keys = new Set<string>();
+    for (const side of [edge.from, edge.to]) {
+      keys.add(keyOf(side.ref));
+      if (side.anchor.kind === "part") keys.add(`part:${side.anchor.uid}`);
+      const owner = side.ref.type === "part" ? side.ref.owner : side.ref.type === "component" ? side.ref.name : null;
+      if (owner === null) continue;
+      keys.add(keyOf({ type: "component", name: owner }));
+      keys.add(keyOf({ type: "environment", name: world.componentsByName.get(owner)!.environment }));
+    }
+    return keys;
+  }
+
   const parallelGroups = new Map<string, EdgeLineEntry[]>();
   for (const entry of edgeLines.values()) {
     const ends = [keyOf(entry.edge.from.ref), keyOf(entry.edge.to.ref)].sort();
@@ -509,8 +527,30 @@ export function mount(root: SVGGElement, world: World, envColor: (env: string | 
     const canonicalFrom = keyOf(group[0]!.edge.from.ref);
     group.forEach((entry, k) => {
       const alongCanonical = keyOf(entry.edge.from.ref) === canonicalFrom ? 1 : -1;
-      entry.lane = { side: (k % 2 === 0 ? alongCanonical : -alongCanonical) as 1 | -1, rank: Math.floor(k / 2) };
+      entry.lane = {
+        side: (k % 2 === 0 ? alongCanonical : -alongCanonical) as 1 | -1,
+        rank: Math.floor(k / 2),
+        along: alongCanonical,
+      };
     });
+  }
+  const routeGroups = [...parallelGroups.values()].map((entries) => ({ entries, shiftKey: null as number | null }));
+
+  function routeObstacles(): RouteObstacle[] {
+    const obstacles: RouteObstacle[] = [];
+    for (const env of world.environments) {
+      obstacles.push({ key: keyOf({ type: "environment", name: env.name }), rect: env.rect, weight: 1 });
+      for (const component of env.components) {
+        obstacles.push({ key: keyOf({ type: "component", name: component.name }), rect: component.rect, weight: 10 });
+        const reveal = revealFactors.get(component.name) ?? 0;
+        if (reveal === 0) continue;
+        for (const part of component.parts) {
+          obstacles.push({ key: `part:${part.uid}`, rect: worldRectOfPart(component.rect, part), weight: 6 * reveal });
+        }
+      }
+    }
+    for (const ext of world.externals) obstacles.push({ key: keyOf({ type: "external", name: ext.name }), rect: ext.rect, weight: 10 });
+    return obstacles;
   }
 
   // A hidden SVG measures as zero, so only a real measurement is cached.
@@ -643,7 +683,23 @@ export function mount(root: SVGGElement, world: World, envColor: (env: string | 
     }
 
     const curves = new Map<EdgeLineEntry, Curve>();
+    const bowSides = new Map<EdgeLineEntry, 1 | -1>();
     const edgeLinesDrawn: Polyline[] = [];
+    const obstaclesForRoutes = routeObstacles();
+    for (const group of routeGroups) {
+      const members: RouteMember[] = group.entries.map((entry) => {
+        const { a, b } = edgeEndpoints(entry.edge.from, entry.edge.to, world, revealFactors);
+        const laneBow = entry.lane.side * (Math.min(40, Math.hypot(b.x - a.x, b.y - a.y) * 0.2) + entry.lane.rank * PARALLEL_SPACING);
+        return { a, b, laneBow, along: entry.lane.along, touches: entry.touches };
+      });
+      group.shiftKey = chooseShift(members, obstaclesForRoutes, group.shiftKey);
+      group.entries.forEach((entry, i) => {
+        const m = members[i]!;
+        const bow = memberBow(m, shiftOf(group.shiftKey!));
+        curves.set(entry, bowCurve(m.a, m.b, bow));
+        bowSides.set(entry, bow < 0 ? -1 : bow > 0 ? 1 : entry.lane.side);
+      });
+    }
     for (const entry of edgeLines.values()) {
       const { path, label, labelBg, edge } = entry;
       const opacity =
@@ -653,17 +709,10 @@ export function mount(root: SVGGElement, world: World, envColor: (env: string | 
       path.setAttribute("opacity", String(opacity));
       label?.setAttribute("opacity", String(opacity));
       labelBg?.setAttribute("opacity", String(opacity * 0.85));
-      const { a, b } = edgeEndpoints(edge.from, edge.to, world, revealFactors);
-      const mx = (a.x + b.x) / 2;
-      const my = (a.y + b.y) / 2;
-      const dx = b.x - a.x;
-      const dy = b.y - a.y;
-      const dist = Math.hypot(dx, dy) || 1;
-      const bow = entry.lane.side * (Math.min(40, dist * 0.2) + entry.lane.rank * PARALLEL_SPACING);
-      const curve = { a, c: { x: mx - dy * (bow / dist), y: my + dx * (bow / dist) }, b };
+      const curve = curves.get(entry)!;
+      const { a, b } = curve;
       path.setAttribute("d", `M ${a.x} ${a.y} Q ${curve.c.x} ${curve.c.y} ${b.x} ${b.y}`);
-      entry.lastAnchor = { x: mx, y: my };
-      curves.set(entry, curve);
+      entry.lastAnchor = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
       if (opacity > 0) edgeLinesDrawn.push(curvePolyline(curve));
     }
 
@@ -689,7 +738,7 @@ export function mount(root: SVGGElement, world: World, envColor: (env: string | 
         const ly = entry.lastAnchor.y + entry.labelOffset.dy;
         rect = { x: lx - box.w / 2, y: ly - box.baseline, w: box.w, h: box.h };
       } else {
-        const placement = placeLabel(curves.get(entry)!, entry.lane.side, box, invZoom, obstacles, entry.labelKey);
+        const placement = placeLabel(curves.get(entry)!, bowSides.get(entry)!, box, invZoom, obstacles, entry.labelKey);
         entry.labelKey = placement.key;
         rect = placement.rect;
       }
