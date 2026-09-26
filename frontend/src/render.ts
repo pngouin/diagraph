@@ -1,6 +1,6 @@
 import { edgeEndpoints } from "./anchors";
 import { withAlpha } from "./colors";
-import { maxGrowth, overlapArea, rectCenter, rectsOverlap, smoothstep, type Rect } from "./geometry";
+import { maxGrowth, rectCenter, rectsOverlap, smoothstep, type Rect } from "./geometry";
 import { COMPONENT_FONT, ENVIRONMENT_FONT, fitText, MONO_FONT } from "./text";
 import type { ComponentNode, EndpointRef, EndpointSide, World, WorldEdge } from "./world";
 
@@ -21,7 +21,6 @@ export interface RenderCallbacks {
   onSelect(ref: SelectableRef | null): void;
   onFocusRequest(rect: Rect): void;
   getScale(): number;
-  getVisibleRect(): Rect;
   requestTick(): void;
 }
 
@@ -57,19 +56,9 @@ function edgeSideMatches(ref: SelectableRef, side: EndpointSide): boolean {
   return false;
 }
 
-function touchesFocused(edge: WorldEdge, revealFactors: Map<string, number>, focusedKey: string | null): boolean {
-  for (const side of [edge.from, edge.to]) {
-    if (side.ref.type === "external" && `external:${side.ref.name}` === focusedKey) return true;
-    if (side.ref.type !== "component") continue;
-    if (`component:${side.ref.name}` === focusedKey || (revealFactors.get(side.ref.name) ?? 0) > 0.05) return true;
-  }
-  return false;
-}
-
 export function mount(root: SVGGElement, world: World, envColor: (env: string | null) => string, cb: RenderCallbacks): RenderHandles {
   const revealFactors = new Map<string, number>();
   let baseScale: number | null = null;
-  let focusedKey: string | null = null;
   const fittedLabels = new Map<SVGTextElement, string>();
 
   // Text is sized in world units times --inv-zoom, so the box width available
@@ -514,23 +503,11 @@ export function mount(root: SVGGElement, world: World, envColor: (env: string | 
         revealFactors.set(component.name, reveal);
       }
     }
-    const ambientFade = 1 - 0.7 * smoothstep(1.3, REVEAL_START_MULT, zoomRatio);
-    focusedKey = ambientFade < 1 ? mostVisibleKey(cb.getVisibleRect()) : null;
 
     for (const env of world.environments) {
       for (const component of env.components) {
         const entry = componentGroups.get(component.name)!;
         const reveal = revealFactors.get(component.name) ?? 0;
-        // An explicit click-selection (of the component, or of one of its
-        // parts) must also exempt it from ambient fade — otherwise a
-        // "selected" node can still read as unselected at mid zoom, since
-        // fade is keyed to double-click *focus*, a separate state.
-        const isSelected =
-          (selection?.type === "component" && selection.name === component.name) ||
-          (selection?.type === "part" && selection.owner === component.name);
-        const inFocus = focusedKey === `component:${component.name}` || reveal > 0.05 || isSelected;
-        entry.g.setAttribute("opacity", String(inFocus ? 1 : ambientFade));
-
         entry.g.setAttribute("transform", `translate(${component.rect.x},${component.rect.y})`);
         entry.frame.setAttribute("width", String(component.rect.w));
         entry.frame.setAttribute("height", String(component.rect.h));
@@ -584,7 +561,6 @@ export function mount(root: SVGGElement, world: World, envColor: (env: string | 
 
     for (const ext of world.externals) {
       const g = externalGroups.get(ext.name)!;
-      g.setAttribute("opacity", String(focusedKey === `external:${ext.name}` ? 1 : ambientFade));
       const c = rectCenter(ext.rect);
       const half = ext.rect.w / 2;
       const points = [
@@ -609,13 +585,10 @@ export function mount(root: SVGGElement, world: World, envColor: (env: string | 
 
     for (const entry of edgeLines.values()) {
       const { path, label, labelBg, edge } = entry;
-      let opacity: number;
-      if (edge.scope === "part-internal") {
-        const owner = (edge.from.ref as { type: "part"; owner: string }).owner;
-        opacity = revealFactors.get(owner) ?? 0;
-      } else {
-        opacity = touchesFocused(edge, revealFactors, focusedKey) ? 1 : ambientFade;
-      }
+      const opacity =
+        edge.scope === "part-internal"
+          ? revealFactors.get((edge.from.ref as { type: "part"; owner: string }).owner) ?? 0
+          : 1;
       path.setAttribute("opacity", String(opacity));
       label?.setAttribute("opacity", String(opacity));
       labelBg?.setAttribute("opacity", String(opacity * 0.85));
@@ -665,22 +638,6 @@ export function mount(root: SVGGElement, world: World, envColor: (env: string | 
     }
 
     applyDimming();
-  }
-
-  // Whatever occupies most of the screen is what the user zoomed into — this
-  // covers wheel/pinch zoom, which never goes through the double-click path.
-  function mostVisibleKey(visible: Rect): string | null {
-    let best: string | null = null;
-    let bestArea = 0;
-    for (const c of world.componentsByName.values()) {
-      const area = overlapArea(c.rect, visible);
-      if (area > bestArea) [best, bestArea] = [`component:${c.name}`, area];
-    }
-    for (const e of world.externals) {
-      const area = overlapArea(e.rect, visible);
-      if (area > bestArea) [best, bestArea] = [`external:${e.name}`, area];
-    }
-    return best;
   }
 
   function currentHighlightSet(): Set<string> | null {
@@ -766,9 +723,9 @@ export function mount(root: SVGGElement, world: World, envColor: (env: string | 
     setSelection(ref) {
       selection = ref;
       searchQuery = "";
-      // Selection and search both feed into tick()'s ambient-fade and
-      // part-reveal opacity, not just applyDimming()'s classes — re-run the
-      // whole frame so the effect shows immediately, not on the next pan/zoom.
+      // Search feeds into tick()'s part-reveal opacity, not just
+      // applyDimming()'s classes — re-run the whole frame so the effect shows
+      // immediately, not on the next pan/zoom.
       tick();
     },
     setSearch(query) {

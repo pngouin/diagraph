@@ -48,7 +48,6 @@ function boot() {
       zoom.fitTo(rect, { padding: 64 });
     },
     getScale: () => zoom.getScale(),
-    getVisibleRect: () => zoom.visibleRect(),
     requestTick: () => handles.tick(),
   });
 
