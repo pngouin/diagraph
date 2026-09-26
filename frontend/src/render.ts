@@ -262,7 +262,11 @@ export function mount(root: SVGGElement, world: World, envColor: (env: string | 
           },
           () => {
             const siblings = component.parts.filter((p) => p !== part).map((p) => p.rect);
-            return maxGrowth(part.rect, siblings, 14);
+            const growth = maxGrowth(part.rect, siblings, 14);
+            return {
+              w: Math.min(growth.w, component.rect.w - 16 - part.rect.x),
+              h: Math.min(growth.h, component.rect.h - 16 - part.rect.y),
+            };
           }
         );
         partEls.set(part.uid, { g: pg, resizeHandle: partResizeHandle });
@@ -291,7 +295,11 @@ export function mount(root: SVGGElement, world: World, envColor: (env: string | 
       () => {
         const parentEnv = world.environments.find((e) => e.components.includes(component))!;
         const siblings = parentEnv.components.filter((c) => c !== component).map((c) => c.rect);
-        return maxGrowth(component.rect, siblings, 20);
+        const growth = maxGrowth(component.rect, siblings, 20);
+        return {
+          w: Math.min(growth.w, parentEnv.rect.x + parentEnv.rect.w - 12 - component.rect.x),
+          h: Math.min(growth.h, parentEnv.rect.y + parentEnv.rect.h - 12 - component.rect.y),
+        };
       }
     );
 
