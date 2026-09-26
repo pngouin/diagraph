@@ -136,6 +136,7 @@ export function mount(root: SVGGElement, world: World, envColor: (env: string | 
   for (const env of world.environments) {
     const g = el("g");
     g.setAttribute("class", "environment");
+    if (env.name !== null) g.dataset.name = env.name;
     const color = envColor(env.name);
     const frame = el("rect");
     frame.setAttribute("class", "environment-frame");
@@ -199,6 +200,7 @@ export function mount(root: SVGGElement, world: World, envColor: (env: string | 
     const g = el("g");
     g.setAttribute("class", "component");
     g.dataset.name = component.name;
+    if (component.environment !== null) g.dataset.environment = component.environment;
 
     const frame = el("rect");
     frame.setAttribute("class", "component-frame");

@@ -1,4 +1,4 @@
-.PHONY: build test frontend
+.PHONY: build test frontend fuzz
 
 build: frontend
 	cargo build
@@ -8,3 +8,6 @@ test: frontend
 
 frontend:
 	cd frontend && npm install && npm run build
+
+fuzz:
+	cd frontend && npm run fuzz
