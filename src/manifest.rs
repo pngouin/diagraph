@@ -3,6 +3,7 @@ use serde::Deserialize;
 pub const MANIFEST_FILE_NAME: &str = "diagraph.toml";
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ManifestFile {
     /// Fallback Name, used only when no co-located language-native project
     /// file (Cargo.toml, package.json, pyproject.toml) provides one.
@@ -15,6 +16,7 @@ pub struct ManifestFile {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct EdgeDecl {
     pub target: String,
     pub via: Option<String>,
@@ -26,6 +28,7 @@ pub struct EdgeDecl {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PartDecl {
     pub name: String,
     #[serde(default)]
@@ -33,6 +36,7 @@ pub struct PartDecl {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PartEdgeDecl {
     pub target: String,
     pub via: Option<String>,
@@ -145,5 +149,52 @@ mod tests {
         assert_eq!(part_edge.data.as_deref(), Some("raw report rows"));
         assert_eq!(manifest.parts[1].name, "upload-thread");
         assert!(manifest.parts[1].edges.is_empty());
+    }
+
+    fn unknown_key_error(raw: &str) -> String {
+        toml::from_str::<ManifestFile>(raw).unwrap_err().to_string()
+    }
+
+    #[test]
+    fn unknown_top_level_key_is_rejected() {
+        assert!(unknown_key_error("enviroment = \"cloud\"\n").contains("enviroment"));
+    }
+
+    #[test]
+    fn unknown_edge_key_is_rejected() {
+        let err = unknown_key_error(
+            r#"
+            [[edges]]
+            target = "s3-bucket"
+            extrenal = true
+            "#,
+        );
+        assert!(err.contains("extrenal"));
+    }
+
+    #[test]
+    fn unknown_part_key_is_rejected() {
+        let err = unknown_key_error(
+            r#"
+            [[parts]]
+            name = "worker"
+            kind = "thread"
+            "#,
+        );
+        assert!(err.contains("kind"));
+    }
+
+    #[test]
+    fn unknown_part_edge_key_is_rejected() {
+        let err = unknown_key_error(
+            r#"
+            [[parts]]
+            name = "worker"
+            [[parts.edges]]
+            target = "listener"
+            from_part = "worker"
+            "#,
+        );
+        assert!(err.contains("from_part"));
     }
 }

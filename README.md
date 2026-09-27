@@ -34,6 +34,8 @@ cargo run -- view --root examples/monorepo -o diagraph.html
 
 A directory is a Component purely because it contains a `diagraph.toml` — nothing else about it matters (it doesn't need to be a Cargo/npm package boundary).
 
+Unknown keys are rejected, so a misspelled `extrenal = true` fails to parse instead of being silently ignored.
+
 | Field | Type | Required | Meaning |
 |---|---|---|---|
 | `name` | string | only as fallback | The Component's Name, used only when no co-located language-native project file provides one (see below). |
