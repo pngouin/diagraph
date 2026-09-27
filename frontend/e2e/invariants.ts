@@ -119,5 +119,16 @@ export function pageInvariants({ initial }: InvariantArgs): string[] {
     if (noHighlight && el.closest(".dimmed")) out.push(`rule2: ${label} dimmed with no selection or search`);
   }
 
+  // Rule 8: dimming never shows a part or part-internal edge that its
+  // zoom-driven reveal keeps hidden.
+  for (const el of document.querySelectorAll<SVGElement>(".part, .edge-part-internal")) {
+    const reveal = parseFloat(el.getAttribute("opacity") ?? "1");
+    const shown = parseFloat(getComputedStyle(el).opacity);
+    if (shown > reveal + 0.01) {
+      const label = el.classList.contains("part") ? `part ${JSON.stringify(el.dataset.name)}` : "part-internal edge";
+      out.push(`rule8: ${label} shown at opacity ${shown.toFixed(2)} above its reveal ${reveal.toFixed(2)}`);
+    }
+  }
+
   return out;
 }

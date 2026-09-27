@@ -94,7 +94,7 @@
   .component-label { font: 600 calc(11px * var(--inv-zoom)) var(--mono); fill: var(--ink); }
   .component-caption { font: calc(10.5px * var(--inv-zoom)) var(--sans); fill: var(--muted); }
   .component, .part, .external, .environment { cursor: pointer; }
-  .component.dimmed, .part.dimmed, .external.dimmed, .edge.dimmed, .edge-label.dimmed, .edge-label-bg.dimmed { opacity: 0.14; }
+  .component.dimmed, .part.dimmed, .external.dimmed, .edge.dimmed, .edge-label.dimmed, .edge-label-bg.dimmed { opacity: calc(0.14 * var(--reveal, 1)); }
   .component.selected .component-frame, .part.selected .part-frame { stroke-width: calc(2.5px * var(--inv-zoom)); }
   .component.search-match .component-frame, .part.search-match .part-frame {
     stroke-width: calc(2.5px * var(--inv-zoom)); stroke: var(--ink);

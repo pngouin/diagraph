@@ -583,6 +583,12 @@ export function mount(root: SVGGElement, world: World, envColor: (env: string | 
     return nodes;
   }
 
+  // --reveal lets the `.dimmed` rule scale this instead of overriding it.
+  function setRevealOpacity(node: SVGElement, opacity: number) {
+    node.setAttribute("opacity", String(opacity));
+    node.style.setProperty("--reveal", String(opacity));
+  }
+
   function partAnchorRevealed(side: EndpointSide): boolean {
     return side.anchor.kind === "part" && side.ref.type === "component" && (revealFactors.get(side.ref.name) ?? 0) > 0;
   }
@@ -647,7 +653,7 @@ export function mount(root: SVGGElement, world: World, envColor: (env: string | 
         for (const part of component.parts) {
           const { g: pg, resizeHandle: partHandle } = entry.parts.get(part.uid)!;
           pg.setAttribute("transform", `translate(${part.rect.x},${part.rect.y})`);
-          pg.setAttribute("opacity", String(reveal));
+          setRevealOpacity(pg, reveal);
           pg.style.pointerEvents = reveal > 0.6 ? "auto" : "none";
           const prect = pg.querySelector<SVGRectElement>(".part-frame")!;
           prect.setAttribute("width", String(part.rect.w));
@@ -712,9 +718,9 @@ export function mount(root: SVGGElement, world: World, envColor: (env: string | 
         edge.scope === "part-internal"
           ? revealFactors.get((edge.from.ref as { type: "part"; owner: string }).owner) ?? 0
           : 1;
-      path.setAttribute("opacity", String(opacity));
-      label?.setAttribute("opacity", String(opacity));
-      labelBg?.setAttribute("opacity", String(opacity * 0.85));
+      setRevealOpacity(path, opacity);
+      if (label) setRevealOpacity(label, opacity);
+      if (labelBg) setRevealOpacity(labelBg, opacity * 0.85);
       // Once a part it anchors to shows, the edge must paint above the
       // component interior or the interior fill hides its last stretch.
       const liftAbove = edge.scope === "boundary" && [edge.from, edge.to].some((side) => partAnchorRevealed(side));
