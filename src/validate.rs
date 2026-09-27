@@ -22,6 +22,7 @@ pub enum ProblemKind {
     DanglingReference {
         from: String,
         target: String,
+        suggestion: Option<String>,
     },
     UnknownFromPart {
         component: String,
@@ -57,7 +58,20 @@ impl std::fmt::Display for ProblemKind {
                 first.display(),
                 second.display()
             ),
-            ProblemKind::DanglingReference { from, target } => write!(
+            ProblemKind::DanglingReference {
+                from,
+                target,
+                suggestion: Some(suggestion),
+            } => write!(
+                f,
+                "{from} declares an edge to \"{target}\", which is not a known Component — \
+                 did you mean \"{suggestion}\"?"
+            ),
+            ProblemKind::DanglingReference {
+                from,
+                target,
+                suggestion: None,
+            } => write!(
                 f,
                 "{from} declares an edge to \"{target}\", which is not a known Component. \
                  If this points outside the monorepo, mark it `external = true`."
@@ -92,6 +106,33 @@ impl std::fmt::Display for ProblemKind {
             ),
         }
     }
+}
+
+fn closest<'a>(needle: &str, candidates: impl IntoIterator<Item = &'a str>) -> Option<&'a str> {
+    let max_distance = (needle.chars().count() / 3).max(1);
+    candidates
+        .into_iter()
+        .map(|candidate| (levenshtein(needle, candidate), candidate))
+        .filter(|&(distance, _)| distance <= max_distance)
+        .min()
+        .map(|(_, candidate)| candidate)
+}
+
+fn levenshtein(a: &str, b: &str) -> usize {
+    let b: Vec<char> = b.chars().collect();
+    let mut row: Vec<usize> = (0..=b.len()).collect();
+    for (i, ca) in a.chars().enumerate() {
+        let mut diagonal = row[0];
+        row[0] = i + 1;
+        for (j, &cb) in b.iter().enumerate() {
+            let above = row[j + 1];
+            row[j + 1] = (above + 1)
+                .min(row[j] + 1)
+                .min(diagonal + usize::from(ca != cb));
+            diagonal = above;
+        }
+    }
+    row[b.len()]
 }
 
 fn problem(component: &Component, kind: ProblemKind) -> Problem {
@@ -130,6 +171,8 @@ pub fn validate(graph: &Graph) -> Vec<Problem> {
                     ProblemKind::DanglingReference {
                         from: component.name.clone(),
                         target: name.clone(),
+                        suggestion: closest(name, graph.components.iter().map(|c| c.name.as_str()))
+                            .map(str::to_owned),
                     },
                 ));
             }
@@ -282,6 +325,50 @@ mod tests {
     }
 
     #[test]
+    fn levenshtein_counts_edits() {
+        assert_eq!(levenshtein("", ""), 0);
+        assert_eq!(levenshtein("abc", ""), 3);
+        assert_eq!(levenshtein("user-servcie", "user-service"), 2);
+        assert_eq!(levenshtein("kitten", "sitting"), 3);
+        assert_eq!(levenshtein("héllo", "hello"), 1);
+    }
+
+    #[test]
+    fn closest_respects_the_distance_threshold() {
+        assert_eq!(
+            closest("user-servcie", ["user-service"]),
+            Some("user-service")
+        );
+        assert_eq!(closest("ab", ["ax"]), Some("ax"));
+        assert_eq!(closest("ab", ["xy"]), None);
+        assert_eq!(closest("billing", ["user-service"]), None);
+    }
+
+    #[test]
+    fn closest_breaks_ties_alphabetically() {
+        assert_eq!(closest("cat", ["cut", "bat"]), Some("bat"));
+    }
+
+    #[test]
+    fn dangling_reference_suggests_the_closest_component() {
+        let graph = Graph {
+            components: vec![
+                component(
+                    "api-gateway",
+                    "api-gateway",
+                    vec![edge(EdgeTarget::Component("user-servcie".to_string()))],
+                ),
+                component("user-service", "user-service", vec![]),
+            ],
+        };
+        let problems = validate(&graph);
+        assert_eq!(problems.len(), 1);
+        let message = problems[0].kind.to_string();
+        assert!(message.contains(r#"did you mean "user-service"?"#));
+        assert!(!message.contains("external = true"));
+    }
+
+    #[test]
     fn dangling_reference_is_reported() {
         let graph = Graph {
             components: vec![component(
@@ -294,9 +381,10 @@ mod tests {
         assert_eq!(problems.len(), 1);
         assert!(matches!(
             &problems[0].kind,
-            ProblemKind::DanglingReference { from, target }
+            ProblemKind::DanglingReference { from, target, suggestion: None }
                 if from == "api-gateway" && target == "missing-service"
         ));
+        assert!(problems[0].kind.to_string().contains("external = true"));
     }
 
     #[test]

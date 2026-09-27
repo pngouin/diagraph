@@ -123,7 +123,7 @@ to_part = "fetch-thread"
 `diagraph check` reports each problem prefixed with the path of the manifest it comes from:
 
 - **Duplicate Name** — two Components resolved to the same Name.
-- **Dangling reference** — an edge's `target` matches no known Component and isn't marked `external = true`.
+- **Dangling reference** — an edge's `target` matches no known Component and isn't marked `external = true`. When a known Name is a near-miss, it suggests that Name instead.
 - **Unknown `from_part`/`to_part`** — an edge names a Part that Component (or the target Component) doesn't declare.
 - **`to_part` on an external edge** — External targets have no Parts.
 - **Unknown Part-edge target** — a Part's internal edge names a Part its Component doesn't declare.
