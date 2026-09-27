@@ -1,7 +1,7 @@
 {
   "name": "diagraph-viewer",
   "private": true,
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Interactive viewer bundled into diagraph's self-contained HTML output.",
   "type": "module",
   "scripts": {
