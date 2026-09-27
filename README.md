@@ -18,7 +18,7 @@ cargo install --path .
 
 ## What it is
 
-Each component in your monorepo — a Rust crate, a Node package, whatever — gets a small `diagram.toml` declaring the other components it calls at runtime. `diagraph` scans the whole tree, checks those declarations for typos and dangling references, and renders the result as a diagram: the whole monorepo's architecture, or just one component's direct neighbors.
+Each component in your monorepo — a Rust crate, a Node package, whatever — gets a small `diagraph.toml` declaring the other components it calls at runtime. `diagraph` scans the whole tree, checks those declarations for typos and dangling references, and renders the result as a diagram: the whole monorepo's architecture, or just one component's direct neighbors.
 
 This covers **Components**, **Environments** (where a component is deployed — `cloud`, `iot`, `mobile`, ...), and **Parts** — internal subdivisions of a component (threads, actors, modules) worth diagramming individually, with a zoomed-in view of a single component's internals.
 
@@ -30,9 +30,9 @@ cargo run -- render --root examples/monorepo
 cargo run -- view --root examples/monorepo -o diagraph.html
 ```
 
-## The `diagram.toml` schema
+## The `diagraph.toml` schema
 
-A directory is a Component purely because it contains a `diagram.toml` — nothing else about it matters (it doesn't need to be a Cargo/npm package boundary).
+A directory is a Component purely because it contains a `diagraph.toml` — nothing else about it matters (it doesn't need to be a Cargo/npm package boundary).
 
 | Field | Type | Required | Meaning |
 |---|---|---|---|
@@ -48,7 +48,7 @@ Each entry under `[[edges]]`:
 | `target` | string | yes | The Name of the Component (or, if `external`, the name of the thing) being called. |
 | `via` | string | no | Free-text: *how* — `"REST"`, `"gRPC"`, `"file upload"`. |
 | `data` | string | no | Free-text: *what* is exchanged — `"user profile"`, `"PDF report"`. |
-| `external` | bool | no, default `false` | Set to `true` when `target` is outside this monorepo (an S3 bucket, a third-party API) and has no `diagram.toml` of its own. |
+| `external` | bool | no, default `false` | Set to `true` when `target` is outside this monorepo (an S3 bucket, a third-party API) and has no `diagraph.toml` of its own. |
 | `from_part` | string | no | Which of *this* Component's declared Parts sends the call. |
 | `to_part` | string | no | Which of the *target* Component's declared Parts receives the call. Not valid on an `external` edge — an External target has no Parts. |
 
@@ -59,19 +59,19 @@ Each entry under `[[parts]]`:
 | `name` | string | yes | The Part's name — unique only *within* this Component, never globally. |
 | `edges` | array of tables | no | This Part's purely-internal calls to other Parts in the *same* Component. Each entry has `target` (another Part's name), `via`, `data` — no `external`/`from_part`/`to_part`, since both ends are always Parts of this one Component. |
 
-**A Component's Name is never retyped in `diagram.toml`.** It's read, in order, from:
+**A Component's Name is never retyped in `diagraph.toml`.** It's read, in order, from:
 
 1. `Cargo.toml`'s `[package].name`
 2. `package.json`'s `"name"`
 3. a Python project file's `[project].name`, or `[tool.poetry].name`
-4. `diagram.toml`'s own `name` field — only as a last resort, when none of the above exist
+4. `diagraph.toml`'s own `name` field — only as a last resort, when none of the above exist
 
 (Why: two names for one thing drift apart over time.)
 
 Two examples from `examples/monorepo/`:
 
 ```toml
-# report-generator/diagram.toml — two Parts, an internal edge between them,
+# report-generator/diagraph.toml — two Parts, an internal edge between them,
 # and an edge to something outside the monorepo, attributed to one Part
 environment = "cloud"
 
@@ -94,7 +94,7 @@ from_part = "upload-thread"
 ```
 
 ```toml
-# api-gateway/diagram.toml — two ordinary edges to other Components, one
+# api-gateway/diagraph.toml — two ordinary edges to other Components, one
 # attributed to a specific Part of the target
 environment = "cloud"
 
@@ -137,7 +137,7 @@ Every view renders the same underlying facts — Environments, Components, Edges
 ## CLI reference
 
 ```sh
-# Validate every diagram.toml under --root (default: current directory)
+# Validate every diagraph.toml under --root (default: current directory)
 diagraph check [--root PATH]
 
 # Render a view as Mermaid (default) or DOT text

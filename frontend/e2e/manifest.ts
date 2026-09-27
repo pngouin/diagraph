@@ -50,7 +50,7 @@ export function writeTree(model: Model, root: string): void {
     });
     const dir = join(root, `c${i}`);
     mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "diagram.toml"), lines.join("\n") + "\n");
+    writeFileSync(join(dir, "diagraph.toml"), lines.join("\n") + "\n");
   });
 }
 

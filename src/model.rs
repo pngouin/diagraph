@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-/// A directory identified solely by the presence of a `diagram.toml` at its root.
+/// A directory identified solely by the presence of a `diagraph.toml` at its root.
 #[derive(Debug, Clone)]
 pub struct Component {
     pub name: String,

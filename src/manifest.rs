@@ -1,6 +1,6 @@
 use serde::Deserialize;
 
-pub const MANIFEST_FILE_NAME: &str = "diagram.toml";
+pub const MANIFEST_FILE_NAME: &str = "diagraph.toml";
 
 #[derive(Debug, Deserialize)]
 pub struct ManifestFile {

@@ -32,7 +32,7 @@ pub enum DiscoverError {
         source: serde_json::Error,
     },
     #[error(
-        "resolving a Name for the Component at {dir} (no Cargo.toml, package.json, or pyproject.toml found, and no `name` field in diagram.toml)"
+        "resolving a Name for the Component at {dir} (no Cargo.toml, package.json, or pyproject.toml found, and no `name` field in diagraph.toml)"
     )]
     NoNameSource { dir: PathBuf },
 }
@@ -84,7 +84,7 @@ pub fn scan(root: &Path) -> Result<Graph> {
         let dir = entry
             .path()
             .parent()
-            .expect("diagram.toml always has a parent directory")
+            .expect("diagraph.toml always has a parent directory")
             .to_path_buf();
         components.push(load_component(&dir)?);
     }
@@ -152,7 +152,7 @@ fn load_component(dir: &Path) -> Result<Component> {
 
 /// Resolves a Component's canonical Name: from a co-located language-native
 /// project file first (Cargo.toml, package.json, pyproject.toml), falling
-/// back to `diagram.toml`'s own `name` field only when none is found.
+/// back to `diagraph.toml`'s own `name` field only when none is found.
 fn resolve_name(dir: &Path, manifest: &ManifestFile) -> Result<String> {
     if let Some(name) = read_cargo_toml_name(dir)? {
         return Ok(name);
@@ -270,7 +270,7 @@ mod tests {
     fn name_sourced_from_cargo_toml() {
         let dir = TempDir::new();
         dir.write("Cargo.toml", "[package]\nname = \"cargo-service\"\n");
-        dir.write("diagram.toml", "");
+        dir.write("diagraph.toml", "");
         let graph = scan(dir.path()).unwrap();
         assert_eq!(graph.components.len(), 1);
         assert_eq!(graph.components[0].name, "cargo-service");
@@ -280,7 +280,7 @@ mod tests {
     fn name_sourced_from_package_json() {
         let dir = TempDir::new();
         dir.write("package.json", r#"{"name": "node-service"}"#);
-        dir.write("diagram.toml", "");
+        dir.write("diagraph.toml", "");
         let graph = scan(dir.path()).unwrap();
         assert_eq!(graph.components[0].name, "node-service");
     }
@@ -289,7 +289,7 @@ mod tests {
     fn name_sourced_from_pyproject_project_table() {
         let dir = TempDir::new();
         dir.write("pyproject.toml", "[project]\nname = \"py-service\"\n");
-        dir.write("diagram.toml", "");
+        dir.write("diagraph.toml", "");
         let graph = scan(dir.path()).unwrap();
         assert_eq!(graph.components[0].name, "py-service");
     }
@@ -301,15 +301,15 @@ mod tests {
             "pyproject.toml",
             "[tool.poetry]\nname = \"poetry-service\"\n",
         );
-        dir.write("diagram.toml", "");
+        dir.write("diagraph.toml", "");
         let graph = scan(dir.path()).unwrap();
         assert_eq!(graph.components[0].name, "poetry-service");
     }
 
     #[test]
-    fn name_falls_back_to_diagram_toml_when_no_language_file() {
+    fn name_falls_back_to_manifest_when_no_language_file() {
         let dir = TempDir::new();
-        dir.write("diagram.toml", "name = \"fallback-service\"\n");
+        dir.write("diagraph.toml", "name = \"fallback-service\"\n");
         let graph = scan(dir.path()).unwrap();
         assert_eq!(graph.components[0].name, "fallback-service");
     }
@@ -319,7 +319,7 @@ mod tests {
         let dir = TempDir::new();
         dir.write("Cargo.toml", "[package]\nname = \"cargo-wins\"\n");
         dir.write("package.json", r#"{"name": "package-json-loses"}"#);
-        dir.write("diagram.toml", "");
+        dir.write("diagraph.toml", "");
         let graph = scan(dir.path()).unwrap();
         assert_eq!(graph.components[0].name, "cargo-wins");
     }
@@ -327,7 +327,7 @@ mod tests {
     #[test]
     fn errors_when_no_name_source_is_available() {
         let dir = TempDir::new();
-        dir.write("diagram.toml", "");
+        dir.write("diagraph.toml", "");
         assert!(scan(dir.path()).is_err());
     }
 
@@ -335,7 +335,7 @@ mod tests {
     fn parts_and_part_attribution_are_mapped_into_the_graph() {
         let dir = TempDir::new();
         dir.write(
-            "diagram.toml",
+            "diagraph.toml",
             r#"
             name = "report-generator"
 
@@ -371,12 +371,12 @@ mod tests {
             "real-service/Cargo.toml",
             "[package]\nname = \"real-service\"\n",
         );
-        dir.write("real-service/diagram.toml", "");
+        dir.write("real-service/diagraph.toml", "");
         dir.write(
             "node_modules/some-lib/package.json",
             r#"{"name": "some-lib"}"#,
         );
-        dir.write("node_modules/some-lib/diagram.toml", "");
+        dir.write("node_modules/some-lib/diagraph.toml", "");
         let graph = scan(dir.path()).unwrap();
         assert_eq!(graph.components.len(), 1);
         assert_eq!(graph.components[0].name, "real-service");

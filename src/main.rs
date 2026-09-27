@@ -20,7 +20,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Scan the monorepo and validate every diagram.toml.
+    /// Scan the monorepo and validate every diagraph.toml.
     Check {
         #[arg(long, default_value = ".")]
         root: PathBuf,

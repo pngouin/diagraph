@@ -112,7 +112,7 @@ function sideIs(edge: WorldEdge, side: "from" | "to", ref: SelectableRef): boole
   if (ref.type === "external" && r.type === "external") return r.name === ref.name;
   if (ref.type === "part" && r.type === "part") return r.uid === ref.uid;
   // A boundary edge that targets a specific part (`to_part`/`from_part` in
-  // diagram.toml) still keys its ref to the owning component — only the
+  // diagraph.toml) still keys its ref to the owning component — only the
   // anchor names the part — so a part selection has to match through that.
   if (ref.type === "part" && r.type === "component" && s.anchor.kind === "part") {
     return r.name === ref.owner && s.anchor.uid === ref.uid;
