@@ -583,6 +583,10 @@ export function mount(root: SVGGElement, world: World, envColor: (env: string | 
     return nodes;
   }
 
+  function partAnchorRevealed(side: EndpointSide): boolean {
+    return side.anchor.kind === "part" && side.ref.type === "component" && (revealFactors.get(side.ref.name) ?? 0) > 0;
+  }
+
   function tick() {
     const scale = cb.getScale();
     if (baseScale === null) baseScale = scale;
@@ -711,6 +715,11 @@ export function mount(root: SVGGElement, world: World, envColor: (env: string | 
       path.setAttribute("opacity", String(opacity));
       label?.setAttribute("opacity", String(opacity));
       labelBg?.setAttribute("opacity", String(opacity * 0.85));
+      // Once a part it anchors to shows, the edge must paint above the
+      // component interior or the interior fill hides its last stretch.
+      const liftAbove = edge.scope === "boundary" && [edge.from, edge.to].some((side) => partAnchorRevealed(side));
+      const layer = edge.scope === "part-internal" || liftAbove ? internalEdgeLayer : edgeLayer;
+      if (path.parentNode !== layer) layer.appendChild(path);
       const curve = curves.get(entry)!;
       const { a, b } = curve;
       path.setAttribute("d", `M ${a.x} ${a.y} Q ${curve.c.x} ${curve.c.y} ${b.x} ${b.y}`);

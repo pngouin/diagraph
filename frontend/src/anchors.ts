@@ -1,8 +1,16 @@
-import { lerpPoint, rectBorderPoint, rectCenter, type Point, type Rect } from "./geometry";
+import { lerpPoint, rectBorderPoint, rectCenter, smoothstep, type Point, type Rect } from "./geometry";
 import type { EndpointSide, PartNode, World } from "./world";
+
+// The endpoint must reach its part while the part is still faint: a linear
+// lerp leaves it in empty interior space for most of the reveal.
+const ANCHOR_SNAP_REVEAL = 0.3;
 
 export function worldRectOfPart(ownerRect: Rect, part: PartNode): Rect {
   return { x: ownerRect.x + part.rect.x, y: ownerRect.y + part.rect.y, w: part.rect.w, h: part.rect.h };
+}
+
+function anchorProgress(revealFactors: Map<string, number>, component: string): number {
+  return smoothstep(0, ANCHOR_SNAP_REVEAL, revealFactors.get(component) ?? 0);
 }
 
 function approxPoint(side: EndpointSide, world: World, revealFactors: Map<string, number>): Point {
@@ -19,7 +27,7 @@ function approxPoint(side: EndpointSide, world: World, revealFactors: Map<string
   if (anchor.kind === "part") {
     const part = comp.parts.find((p) => p.uid === anchor.uid);
     if (part) {
-      const t = revealFactors.get(comp.name) ?? 0;
+      const t = anchorProgress(revealFactors, comp.name);
       return lerpPoint(compCenter, rectCenter(worldRectOfPart(comp.rect, part)), t);
     }
   }
@@ -41,7 +49,7 @@ function precisePoint(side: EndpointSide, world: World, revealFactors: Map<strin
     const part = comp.parts.find((p) => p.uid === anchor.uid);
     if (part) {
       const inner = rectBorderPoint(worldRectOfPart(comp.rect, part), target);
-      const t = revealFactors.get(comp.name) ?? 0;
+      const t = anchorProgress(revealFactors, comp.name);
       return lerpPoint(outer, inner, t);
     }
   }
