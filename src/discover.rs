@@ -154,13 +154,7 @@ fn load_component(dir: &Path) -> Result<Component> {
 /// project file first (Cargo.toml, package.json, pyproject.toml), falling
 /// back to `diagraph.toml`'s own `name` field only when none is found.
 fn resolve_name(dir: &Path, manifest: &ManifestFile) -> Result<String> {
-    if let Some(name) = read_cargo_toml_name(dir)? {
-        return Ok(name);
-    }
-    if let Some(name) = read_package_json_name(dir)? {
-        return Ok(name);
-    }
-    if let Some(name) = read_pyproject_toml_name(dir)? {
+    if let Some((name, _)) = project_name(dir)? {
         return Ok(name);
     }
     if let Some(name) = &manifest.name {
@@ -169,6 +163,36 @@ fn resolve_name(dir: &Path, manifest: &ManifestFile) -> Result<String> {
     Err(DiscoverError::NoNameSource {
         dir: dir.to_path_buf(),
     })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NameSource {
+    CargoToml,
+    PackageJson,
+    Pyproject,
+}
+
+impl std::fmt::Display for NameSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            NameSource::CargoToml => "Cargo.toml",
+            NameSource::PackageJson => "package.json",
+            NameSource::Pyproject => "pyproject.toml",
+        })
+    }
+}
+
+pub fn project_name(dir: &Path) -> Result<Option<(String, NameSource)>> {
+    if let Some(name) = read_cargo_toml_name(dir)? {
+        return Ok(Some((name, NameSource::CargoToml)));
+    }
+    if let Some(name) = read_package_json_name(dir)? {
+        return Ok(Some((name, NameSource::PackageJson)));
+    }
+    if let Some(name) = read_pyproject_toml_name(dir)? {
+        return Ok(Some((name, NameSource::Pyproject)));
+    }
+    Ok(None)
 }
 
 fn read_cargo_toml_name(dir: &Path) -> Result<Option<String>> {
@@ -322,6 +346,23 @@ mod tests {
         dir.write("diagraph.toml", "");
         let graph = scan(dir.path()).unwrap();
         assert_eq!(graph.components[0].name, "cargo-wins");
+    }
+
+    #[test]
+    fn project_name_reports_its_source() {
+        let dir = TempDir::new();
+        dir.write("package.json", r#"{"name": "web-dashboard"}"#);
+        assert_eq!(
+            project_name(dir.path()).unwrap(),
+            Some(("web-dashboard".to_string(), NameSource::PackageJson))
+        );
+    }
+
+    #[test]
+    fn project_name_ignores_the_manifest_fallback() {
+        let dir = TempDir::new();
+        dir.write("diagraph.toml", "name = \"fallback-service\"\n");
+        assert_eq!(project_name(dir.path()).unwrap(), None);
     }
 
     #[test]
