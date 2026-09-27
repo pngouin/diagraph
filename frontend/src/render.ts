@@ -14,6 +14,12 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 // reveal parts before the user asked to step in.
 const REVEAL_START_MULT = 2.6;
 const REVEAL_END_MULT = 4.6;
+// A component that fills much of the screen reveals sooner, however little
+// zoom that took — but only once the user has zoomed past the initial fit,
+// so a lone component fitted to the screen still starts closed.
+const COVERAGE_START = 0.3;
+const COVERAGE_END = 0.55;
+const COVERAGE_GATE_MULT = 1.4;
 // How far a user-dragged edge label may stray from its edge's midpoint —
 // enough to dodge an overlap, not enough to read as detached from the edge.
 const MAX_LABEL_DRAG = 120;
@@ -608,14 +614,19 @@ export function mount(root: SVGGElement, world: World, envColor: (env: string | 
     // shrinking toward unreadable all the way to max zoom.
     const invZoom = Math.max(1 / REVEAL_END_MULT, Math.min(1, 1 / zoomRatio));
     root.style.setProperty("--inv-zoom", String(invZoom));
+    const canvas = root.ownerSVGElement!.getBoundingClientRect();
+    const zoomReveal = smoothstep(REVEAL_START_MULT, REVEAL_END_MULT, zoomRatio);
+    const steppedIn = smoothstep(1, COVERAGE_GATE_MULT, zoomRatio);
     for (const env of world.environments) {
       for (const component of env.components) {
         // A part matching the search must be visible regardless of zoom —
         // otherwise it stays opacity-0 until the user happens to zoom in
         // deep enough to trigger the ordinary reveal.
         const searchMatchesPart = searchQuery !== "" && component.parts.some((p) => labelMatchesSearch(p.name));
+        const coverage = Math.max((component.rect.w * scale) / (canvas.width || 1), (component.rect.h * scale) / (canvas.height || 1));
+        const coverageReveal = smoothstep(COVERAGE_START, COVERAGE_END, coverage) * steppedIn;
         const reveal = component.hasParts
-          ? Math.max(smoothstep(REVEAL_START_MULT, REVEAL_END_MULT, zoomRatio), searchMatchesPart ? 1 : 0)
+          ? Math.max(zoomReveal, coverageReveal, searchMatchesPart ? 1 : 0)
           : 0;
         revealFactors.set(component.name, reveal);
       }
