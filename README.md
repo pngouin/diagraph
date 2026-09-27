@@ -41,7 +41,7 @@ Unknown keys are rejected, so a misspelled `extrenal = true` fails to parse inst
 | `name` | string | only as fallback | The Component's Name, used only when no co-located language-native project file provides one (see below). |
 | `environment` | string | no | Free-text deployment label, e.g. `"cloud"`, `"iot"`, `"mobile"`. At most one per Component. |
 | `edges` | array of strings or tables | no | This Component's outgoing calls. See below. |
-| `parts` | array of tables | no | This Component's internal subdivisions (threads, actors, modules). See below. |
+| `parts` | table keyed by Part name | no | This Component's internal subdivisions (threads, actors, modules). See below. |
 
 Each edge is either a bare string — just the `target` — or a table with these fields:
 
@@ -54,11 +54,10 @@ Each edge is either a bare string — just the `target` — or a table with thes
 | `from_part` | string | no | Which of *this* Component's declared Parts sends the call. |
 | `to_part` | string | no | Which of the *target* Component's declared Parts receives the call. Not valid on an `external` edge — an External target has no Parts. |
 
-Each entry under `[[parts]]`:
+Each Part is a `[parts.<name>]` table. The key is the Part's name — unique only *within* this Component, never globally; TOML itself rejects a repeated key. Quote names that aren't bare keys: `[parts."ingest thread"]`.
 
 | Field | Type | Required | Meaning |
 |---|---|---|---|
-| `name` | string | yes | The Part's name — unique only *within* this Component, never globally. |
 | `edges` | array of strings or tables | no | This Part's purely-internal calls to other Parts in the *same* Component. Each entry has `target` (another Part's name), `via`, `data` — no `external`/`from_part`/`to_part`, since both ends are always Parts of this one Component. |
 
 **A Component's Name is never retyped in `diagraph.toml`.** It's read, in order, from:
@@ -86,15 +85,13 @@ Two examples from `examples/monorepo/`:
 # and an edge to something outside the monorepo, attributed to one Part
 environment = "cloud"
 
-[[parts]]
-name = "fetch-thread"
-[[parts.edges]]
+[parts.fetch-thread]
+[[parts.fetch-thread.edges]]
 target = "upload-thread"
 via = "channel"
 data = "raw report rows"
 
-[[parts]]
-name = "upload-thread"
+[parts.upload-thread]
 
 [[edges]]
 target = "s3-reports-bucket"

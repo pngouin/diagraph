@@ -45,10 +45,11 @@ export function writeTree(model: Model, root: string): void {
     }
     if (c.edges.length > 0) lines.push("]");
     c.parts.forEach((p, pi) => {
-      lines.push("", "[[parts]]", `name = ${tomlString(p.name)}`);
+      const key = `parts.${tomlString(p.name)}`;
+      lines.push("", `[${key}]`);
       for (const pe of c.partEdges) {
         if (pe.from % c.parts.length !== pi) continue;
-        lines.push("", "[[parts.edges]]", `target = ${tomlString(c.parts[pe.to % c.parts.length]!.name)}`);
+        lines.push("", `[[${key}.edges]]`, `target = ${tomlString(c.parts[pe.to % c.parts.length]!.name)}`);
         if (pe.via !== null) lines.push(`via = ${tomlString(pe.via)}`);
       }
     });

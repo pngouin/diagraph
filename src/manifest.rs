@@ -15,7 +15,7 @@ pub struct ManifestFile {
     pub environment: Option<String>,
     #[serde(default, deserialize_with = "shorthand_edges")]
     pub edges: Vec<EdgeDecl>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "parts_by_name")]
     pub parts: Vec<PartDecl>,
 }
 
@@ -40,12 +40,17 @@ impl From<String> for EdgeDecl {
     }
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug)]
 pub struct PartDecl {
     pub name: String,
-    #[serde(default, deserialize_with = "shorthand_edges")]
     pub edges: Vec<PartEdgeDecl>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PartBody {
+    #[serde(default, deserialize_with = "shorthand_edges")]
+    edges: Vec<PartEdgeDecl>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -106,6 +111,32 @@ where
 {
     let edges = Vec::<Shorthand<T>>::deserialize(deserializer)?;
     Ok(edges.into_iter().map(|Shorthand(edge)| edge).collect())
+}
+
+/// `[parts.<name>]` tables, kept in declaration order.
+fn parts_by_name<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<PartDecl>, D::Error> {
+    struct Visitor;
+
+    impl<'de> de::Visitor<'de> for Visitor {
+        type Value = Vec<PartDecl>;
+
+        fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            f.write_str("a table of Parts keyed by name")
+        }
+
+        fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+            let mut parts = Vec::new();
+            while let Some((name, body)) = map.next_entry::<String, PartBody>()? {
+                parts.push(PartDecl {
+                    name,
+                    edges: body.edges,
+                });
+            }
+            Ok(parts)
+        }
+    }
+
+    deserializer.deserialize_map(Visitor)
 }
 
 #[cfg(test)]
@@ -194,15 +225,13 @@ mod tests {
     fn parts_with_internal_edges_parse() {
         let manifest: ManifestFile = toml::from_str(
             r#"
-            [[parts]]
-            name = "fetch-thread"
-            [[parts.edges]]
+            [parts.fetch-thread]
+            [[parts.fetch-thread.edges]]
             target = "upload-thread"
             via = "channel"
             data = "raw report rows"
 
-            [[parts]]
-            name = "upload-thread"
+            [parts.upload-thread]
             "#,
         )
         .unwrap();
@@ -214,6 +243,31 @@ mod tests {
         assert_eq!(part_edge.data.as_deref(), Some("raw report rows"));
         assert_eq!(manifest.parts[1].name, "upload-thread");
         assert!(manifest.parts[1].edges.is_empty());
+    }
+
+    #[test]
+    fn parts_keep_declaration_order() {
+        let manifest: ManifestFile = toml::from_str(
+            r#"
+            [parts.zeta]
+            [parts.alpha]
+            [parts.mid]
+            "#,
+        )
+        .unwrap();
+        let names: Vec<_> = manifest.parts.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, ["zeta", "alpha", "mid"]);
+    }
+
+    #[test]
+    fn duplicate_part_name_is_a_parse_error() {
+        let result = toml::from_str::<ManifestFile>(
+            r#"
+            [parts.worker]
+            [parts.worker]
+            "#,
+        );
+        assert!(result.is_err());
     }
 
     #[test]
@@ -243,12 +297,10 @@ mod tests {
     fn part_edges_accept_bare_strings() {
         let manifest: ManifestFile = toml::from_str(
             r#"
-            [[parts]]
-            name = "worker"
+            [parts.worker]
             edges = ["listener"]
 
-            [[parts]]
-            name = "listener"
+            [parts.listener]
             "#,
         )
         .unwrap();
@@ -295,20 +347,18 @@ mod tests {
     fn unknown_part_key_is_rejected() {
         let err = unknown_key_error(
             r#"
-            [[parts]]
+            [parts.worker]
             name = "worker"
-            kind = "thread"
             "#,
         );
-        assert!(err.contains("kind"));
+        assert!(err.contains("name"));
     }
 
     #[test]
     fn unknown_part_edge_key_is_rejected() {
         let err = unknown_key_error(
             r#"
-            [[parts]]
-            name = "worker"
+            [parts.worker]
             edges = [{ target = "listener", from_part = "worker" }]
             "#,
         );

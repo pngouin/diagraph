@@ -339,14 +339,12 @@ mod tests {
             r#"
             name = "report-generator"
 
-            [[parts]]
-            name = "fetch-thread"
-            [[parts.edges]]
+            [parts.fetch-thread]
+            [[parts.fetch-thread.edges]]
             target = "upload-thread"
             via = "channel"
 
-            [[parts]]
-            name = "upload-thread"
+            [parts.upload-thread]
 
             [[edges]]
             target = "s3-reports-bucket"

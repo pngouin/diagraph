@@ -1,14 +1,12 @@
 environment = "cloud"
 
-[[parts]]
-name = "fetch-thread"
-[[parts.edges]]
+[parts.fetch-thread]
+[[parts.fetch-thread.edges]]
 target = "upload-thread"
 via = "channel"
 data = "raw report rows"
 
-[[parts]]
-name = "upload-thread"
+[parts.upload-thread]
 
 [[edges]]
 target = "s3-reports-bucket"

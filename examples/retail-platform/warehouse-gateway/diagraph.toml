@@ -1,21 +1,18 @@
 environment = "edge"
 
-[[parts]]
-name = "mqtt-listener"
-[[parts.edges]]
+[parts.mqtt-listener]
+[[parts.mqtt-listener.edges]]
 target = "dedup-worker"
 via = "channel"
 data = "raw telemetry"
 
-[[parts]]
-name = "dedup-worker"
-[[parts.edges]]
+[parts.dedup-worker]
+[[parts.dedup-worker.edges]]
 target = "forwarder"
 via = "channel"
 data = "deduplicated telemetry"
 
-[[parts]]
-name = "forwarder"
+[parts.forwarder]
 
 [[edges]]
 target = "inventory-service"
