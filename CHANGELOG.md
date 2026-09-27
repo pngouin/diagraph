@@ -1,4 +1,50 @@
 # Changelog
+## [0.1.1] - 2026-09-27
+
+### Features
+
+- *(html)* Place edge labels by scoring candidates around nodes and edges
+- *(html)* Bow edges around nodes and frames they don't connect to
+- *(html)* Pan the view with right-click drag
+
+### Bug Fixes
+
+- *(html)* Keep long node labels inside their boxes
+- *(html)* Keep the zoomed-in component at full opacity
+- *(html)* Keep resized nodes inside their parent frame
+- *(html)* Drop the zoom-driven ambient fade
+- *(html)* Spread parallel edges between the same nodes into lanes
+- *(html)* Order components by grid distance, not list position
+
+### Documentation
+
+- *(changelog)* Update CHANGELOG.md for v0.1.0
+
+### Performance
+
+- *(html)* Measure edge labels once instead of every tick
+
+### Testing
+
+- *(frontend)* Add property-based e2e fuzzer for the viewer
+- *(frontend)* Check that nothing fades without a selection or search
+
+### Build
+
+- *(deps)* Update dtolnay/rust-toolchain requirement to 6bed0761d98439e5a578e2877258200ad565ba87
+- *(deps)* Bump actions/checkout from 4.4.0 to 7.0.1
+- *(deps)* Bump actions/checkout from 4.4.0 to 7.0.1
+- *(deps)* Bump softprops/action-gh-release from 2.6.2 to 3.0.3
+- *(deps)* Bump softprops/action-gh-release from 2.6.2 to 3.0.3
+- *(deps)* Bump Swatinem/rust-cache
+- *(deps)* Bump Swatinem/rust-cache from 49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c to 6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+- *(deps)* Update dtolnay/rust-toolchain requirement to 6bed0761d98439e5a578e2877258200ad565ba87
+- *(deps)* Bump actions/setup-node from 4.4.0 to 7.0.0
+- *(deps)* Bump actions/setup-node from 4.4.0 to 7.0.0
+- *(deps)* Update dtolnay/rust-toolchain requirement to 6bed0761d98439e5a578e2877258200ad565ba87
+- *(deps)* Update dtolnay/rust-toolchain requirement to 6bed0761d98439e5a578e2877258200ad565ba87
+- *(deps)* Bump thiserror from 2.0.20 to 2.0.21
+- *(deps)* Bump thiserror from 2.0.20 to 2.0.21
 ## [0.1.0] - 2026-09-19
 
 ### Features
