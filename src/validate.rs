@@ -1,15 +1,23 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 
+use crate::manifest::MANIFEST_FILE_NAME;
 #[cfg(test)]
-use crate::model::{Component, Edge};
-use crate::model::{EdgeTarget, Graph};
+use crate::model::Edge;
+use crate::model::{Component, EdgeTarget, Graph};
 
 #[derive(Debug)]
-pub enum Problem {
+pub struct Problem {
+    pub manifest: PathBuf,
+    pub kind: ProblemKind,
+}
+
+#[derive(Debug)]
+pub enum ProblemKind {
     DuplicateName {
         name: String,
-        first: std::path::PathBuf,
-        second: std::path::PathBuf,
+        first: PathBuf,
+        second: PathBuf,
     },
     DanglingReference {
         from: String,
@@ -35,10 +43,10 @@ pub enum Problem {
     },
 }
 
-impl std::fmt::Display for Problem {
+impl std::fmt::Display for ProblemKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Problem::DuplicateName {
+            ProblemKind::DuplicateName {
                 name,
                 first,
                 second,
@@ -49,17 +57,17 @@ impl std::fmt::Display for Problem {
                 first.display(),
                 second.display()
             ),
-            Problem::DanglingReference { from, target } => write!(
+            ProblemKind::DanglingReference { from, target } => write!(
                 f,
                 "{from} declares an edge to \"{target}\", which is not a known Component. \
                  If this points outside the monorepo, mark it `external = true`."
             ),
-            Problem::UnknownFromPart { component, part } => write!(
+            ProblemKind::UnknownFromPart { component, part } => write!(
                 f,
                 "{component} declares an edge with from_part \"{part}\", which is not a Part \
                  it declares"
             ),
-            Problem::UnknownToPart {
+            ProblemKind::UnknownToPart {
                 from,
                 to_component,
                 part,
@@ -68,12 +76,12 @@ impl std::fmt::Display for Problem {
                 "{from} declares an edge to \"{to_component}\" with to_part \"{part}\", which \
                  is not a Part {to_component} declares"
             ),
-            Problem::ToPartOnExternalEdge { from, part } => write!(
+            ProblemKind::ToPartOnExternalEdge { from, part } => write!(
                 f,
                 "{from} declares an edge with to_part \"{part}\" but the target is marked \
                  external — external targets have no Parts"
             ),
-            Problem::UnknownPartEdgeTarget {
+            ProblemKind::UnknownPartEdgeTarget {
                 component,
                 part,
                 target,
@@ -86,17 +94,27 @@ impl std::fmt::Display for Problem {
     }
 }
 
+fn problem(component: &Component, kind: ProblemKind) -> Problem {
+    Problem {
+        manifest: component.dir.join(MANIFEST_FILE_NAME),
+        kind,
+    }
+}
+
 pub fn validate(graph: &Graph) -> Vec<Problem> {
     let mut problems = Vec::new();
 
-    let mut seen: HashMap<&str, &std::path::PathBuf> = HashMap::new();
+    let mut seen: HashMap<&str, &PathBuf> = HashMap::new();
     for component in &graph.components {
         if let Some(&first) = seen.get(component.name.as_str()) {
-            problems.push(Problem::DuplicateName {
-                name: component.name.clone(),
-                first: first.clone(),
-                second: component.dir.clone(),
-            });
+            problems.push(problem(
+                component,
+                ProblemKind::DuplicateName {
+                    name: component.name.clone(),
+                    first: first.clone(),
+                    second: component.dir.clone(),
+                },
+            ));
         } else {
             seen.insert(&component.name, &component.dir);
         }
@@ -107,10 +125,13 @@ pub fn validate(graph: &Graph) -> Vec<Problem> {
             if let EdgeTarget::Component(name) = &edge.target
                 && graph.find(name).is_none()
             {
-                problems.push(Problem::DanglingReference {
-                    from: component.name.clone(),
-                    target: name.clone(),
-                });
+                problems.push(problem(
+                    component,
+                    ProblemKind::DanglingReference {
+                        from: component.name.clone(),
+                        target: name.clone(),
+                    },
+                ));
             }
         }
     }
@@ -119,11 +140,14 @@ pub fn validate(graph: &Graph) -> Vec<Problem> {
         for part in &component.parts {
             for part_edge in &part.edges {
                 if component.find_part(&part_edge.target).is_none() {
-                    problems.push(Problem::UnknownPartEdgeTarget {
-                        component: component.name.clone(),
-                        part: part.name.clone(),
-                        target: part_edge.target.clone(),
-                    });
+                    problems.push(problem(
+                        component,
+                        ProblemKind::UnknownPartEdgeTarget {
+                            component: component.name.clone(),
+                            part: part.name.clone(),
+                            target: part_edge.target.clone(),
+                        },
+                    ));
                 }
             }
         }
@@ -132,28 +156,37 @@ pub fn validate(graph: &Graph) -> Vec<Problem> {
             if let Some(from_part) = &edge.from_part
                 && component.find_part(from_part).is_none()
             {
-                problems.push(Problem::UnknownFromPart {
-                    component: component.name.clone(),
-                    part: from_part.clone(),
-                });
+                problems.push(problem(
+                    component,
+                    ProblemKind::UnknownFromPart {
+                        component: component.name.clone(),
+                        part: from_part.clone(),
+                    },
+                ));
             }
 
             match (&edge.target, &edge.to_part) {
                 (EdgeTarget::External(_), Some(to_part)) => {
-                    problems.push(Problem::ToPartOnExternalEdge {
-                        from: component.name.clone(),
-                        part: to_part.clone(),
-                    });
+                    problems.push(problem(
+                        component,
+                        ProblemKind::ToPartOnExternalEdge {
+                            from: component.name.clone(),
+                            part: to_part.clone(),
+                        },
+                    ));
                 }
                 (EdgeTarget::Component(target_name), Some(to_part)) => {
                     if let Some(target) = graph.find(target_name)
                         && target.find_part(to_part).is_none()
                     {
-                        problems.push(Problem::UnknownToPart {
-                            from: component.name.clone(),
-                            to_component: target_name.clone(),
-                            part: to_part.clone(),
-                        });
+                        problems.push(problem(
+                            component,
+                            ProblemKind::UnknownToPart {
+                                from: component.name.clone(),
+                                to_component: target_name.clone(),
+                                part: to_part.clone(),
+                            },
+                        ));
                     }
                 }
                 _ => {}
@@ -168,7 +201,7 @@ pub fn validate(graph: &Graph) -> Vec<Problem> {
 mod tests {
     use super::*;
     use crate::model::{Part, PartEdge};
-    use std::path::PathBuf;
+    use PathBuf;
 
     fn component(name: &str, dir: &str, edges: Vec<Edge>) -> Component {
         Component {
@@ -241,7 +274,11 @@ mod tests {
         };
         let problems = validate(&graph);
         assert_eq!(problems.len(), 1);
-        assert!(matches!(problems[0], Problem::DuplicateName { .. }));
+        assert!(matches!(
+            problems[0].kind,
+            ProblemKind::DuplicateName { .. }
+        ));
+        assert_eq!(problems[0].manifest, PathBuf::from("dir-b/diagraph.toml"));
     }
 
     #[test]
@@ -256,8 +293,8 @@ mod tests {
         let problems = validate(&graph);
         assert_eq!(problems.len(), 1);
         assert!(matches!(
-            &problems[0],
-            Problem::DanglingReference { from, target }
+            &problems[0].kind,
+            ProblemKind::DanglingReference { from, target }
                 if from == "api-gateway" && target == "missing-service"
         ));
     }
@@ -303,8 +340,8 @@ mod tests {
         let problems = validate(&graph);
         assert_eq!(problems.len(), 1);
         assert!(matches!(
-            &problems[0],
-            Problem::UnknownPartEdgeTarget { target, .. } if target == "does-not-exist"
+            &problems[0].kind,
+            ProblemKind::UnknownPartEdgeTarget { target, .. } if target == "does-not-exist"
         ));
     }
 
@@ -323,8 +360,8 @@ mod tests {
         let problems = validate(&graph);
         assert_eq!(problems.len(), 1);
         assert!(matches!(
-            &problems[0],
-            Problem::UnknownFromPart { part, .. } if part == "does-not-exist"
+            &problems[0].kind,
+            ProblemKind::UnknownFromPart { part, .. } if part == "does-not-exist"
         ));
     }
 
@@ -346,8 +383,8 @@ mod tests {
         let problems = validate(&graph);
         assert_eq!(problems.len(), 1);
         assert!(matches!(
-            &problems[0],
-            Problem::UnknownToPart { part, .. } if part == "does-not-exist"
+            &problems[0].kind,
+            ProblemKind::UnknownToPart { part, .. } if part == "does-not-exist"
         ));
     }
 
@@ -366,8 +403,8 @@ mod tests {
         let problems = validate(&graph);
         assert_eq!(problems.len(), 1);
         assert!(matches!(
-            &problems[0],
-            Problem::ToPartOnExternalEdge { part, .. } if part == "worker"
+            &problems[0].kind,
+            ProblemKind::ToPartOnExternalEdge { part, .. } if part == "worker"
         ));
     }
 
@@ -385,6 +422,9 @@ mod tests {
         };
         let problems = validate(&graph);
         assert_eq!(problems.len(), 1);
-        assert!(matches!(problems[0], Problem::DanglingReference { .. }));
+        assert!(matches!(
+            problems[0].kind,
+            ProblemKind::DanglingReference { .. }
+        ));
     }
 }

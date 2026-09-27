@@ -107,9 +107,17 @@ fn cmd_check(root: &Path) -> Result<()> {
         return Ok(());
     }
     for p in &problems {
-        eprintln!("{p}");
+        eprintln!("{}: {}", display_path(&p.manifest).display(), p.kind);
     }
     bail!("{} problem(s) found", problems.len());
+}
+
+fn display_path(path: &Path) -> &Path {
+    let path = std::env::current_dir()
+        .ok()
+        .and_then(|cwd| path.strip_prefix(cwd).ok())
+        .unwrap_or(path);
+    path.strip_prefix(".").unwrap_or(path)
 }
 
 fn cmd_render(
@@ -194,6 +202,21 @@ fn serve_once(stream: &mut std::net::TcpStream, body: &[u8]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn display_path_is_relative_to_the_current_directory() {
+        let cwd = std::env::current_dir().unwrap();
+        let absolute = cwd.join("api/diagraph.toml");
+        assert_eq!(display_path(&absolute), Path::new("api/diagraph.toml"));
+        assert_eq!(
+            display_path(Path::new("./api/diagraph.toml")),
+            Path::new("api/diagraph.toml")
+        );
+        assert_eq!(
+            display_path(Path::new("/elsewhere/diagraph.toml")),
+            Path::new("/elsewhere/diagraph.toml")
+        );
+    }
 
     fn fixture_root() -> PathBuf {
         PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/examples/monorepo"))

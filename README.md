@@ -120,7 +120,7 @@ to_part = "fetch-thread"
 
 ### Validation
 
-`diagraph check` reports:
+`diagraph check` reports each problem prefixed with the path of the manifest it comes from:
 
 - **Duplicate Name** — two Components resolved to the same Name.
 - **Dangling reference** — an edge's `target` matches no known Component and isn't marked `external = true`.
