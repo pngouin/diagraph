@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 #[cfg(test)]
 use crate::model::{Component, Edge};
@@ -14,10 +14,6 @@ pub enum Problem {
     DanglingReference {
         from: String,
         target: String,
-    },
-    DuplicatePartName {
-        component: String,
-        part: String,
     },
     UnknownFromPart {
         component: String,
@@ -57,11 +53,6 @@ impl std::fmt::Display for Problem {
                 f,
                 "{from} declares an edge to \"{target}\", which is not a known Component. \
                  If this points outside the monorepo, mark it `external = true`."
-            ),
-            Problem::DuplicatePartName { component, part } => write!(
-                f,
-                "Component \"{component}\" declares two Parts named \"{part}\" — Part names \
-                 must be unique within their Component"
             ),
             Problem::UnknownFromPart { component, part } => write!(
                 f,
@@ -125,16 +116,6 @@ pub fn validate(graph: &Graph) -> Vec<Problem> {
     }
 
     for component in &graph.components {
-        let mut seen_parts: HashSet<&str> = HashSet::new();
-        for part in &component.parts {
-            if !seen_parts.insert(part.name.as_str()) {
-                problems.push(Problem::DuplicatePartName {
-                    component: component.name.clone(),
-                    part: part.name.clone(),
-                });
-            }
-        }
-
         for part in &component.parts {
             for part_edge in &part.edges {
                 if component.find_part(&part_edge.target).is_none() {
@@ -308,20 +289,6 @@ mod tests {
             ],
         };
         assert!(validate(&graph).is_empty());
-    }
-
-    #[test]
-    fn duplicate_part_name_is_reported() {
-        let graph = Graph {
-            components: vec![component_with_parts(
-                "report-generator",
-                vec![],
-                vec![part("worker", vec![]), part("worker", vec![])],
-            )],
-        };
-        let problems = validate(&graph);
-        assert_eq!(problems.len(), 1);
-        assert!(matches!(problems[0], Problem::DuplicatePartName { .. }));
     }
 
     #[test]
