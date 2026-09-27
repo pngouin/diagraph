@@ -1,4 +1,31 @@
 # Changelog
+## [0.2.0] - 2026-09-27
+
+### Features
+
+- *(manifest)* [**breaking**] Rename diagram.toml to diagraph.toml
+- *(manifest)* [**breaking**] Reject unknown keys
+- *(manifest)* Accept bare-string edges
+- *(manifest)* [**breaking**] Key parts by name
+- *(validate)* Prefix problems with their manifest path
+- *(validate)* Suggest the closest Component for dangling targets
+- *(validate)* Hint at declared Parts for unknown Part names
+- *(cli)* Add init subcommand
+
+### Bug Fixes
+
+- *(viewer)* Keep part-anchored edges visible and on their part while zooming
+- *(viewer)* Stop dimming from showing parts and edges hidden by zoom
+- *(viewer)* Reveal parts once their component fills the screen
+
+### Documentation
+
+- *(changelog)* Update CHANGELOG.md for v0.1.1
+
+### Refactor
+
+- *(validate)* Drop duplicate Part name check
+- *(discover)* Expose project-file Name lookup with its source
 ## [0.1.1] - 2026-09-27
 
 ### Features
