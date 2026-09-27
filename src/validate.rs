@@ -27,11 +27,13 @@ pub enum ProblemKind {
     UnknownFromPart {
         component: String,
         part: String,
+        hint: PartHint,
     },
     UnknownToPart {
         from: String,
         to_component: String,
         part: String,
+        hint: PartHint,
     },
     ToPartOnExternalEdge {
         from: String,
@@ -41,7 +43,36 @@ pub enum ProblemKind {
         component: String,
         part: String,
         target: String,
+        hint: PartHint,
     },
+}
+
+#[derive(Debug, PartialEq)]
+pub enum PartHint {
+    DidYouMean(String),
+    Declared(Vec<String>),
+    None,
+}
+
+impl PartHint {
+    fn for_name(needle: &str, component: &Component) -> Self {
+        let names = component.parts.iter().map(|p| p.name.as_str());
+        match closest(needle, names.clone()) {
+            Some(name) => PartHint::DidYouMean(name.to_owned()),
+            None if component.parts.is_empty() => PartHint::None,
+            None => PartHint::Declared(names.map(str::to_owned).collect()),
+        }
+    }
+}
+
+impl std::fmt::Display for PartHint {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PartHint::DidYouMean(name) => write!(f, " — did you mean \"{name}\"?"),
+            PartHint::Declared(names) => write!(f, " (declared Parts: {})", names.join(", ")),
+            PartHint::None => Ok(()),
+        }
+    }
 }
 
 impl std::fmt::Display for ProblemKind {
@@ -76,19 +107,24 @@ impl std::fmt::Display for ProblemKind {
                 "{from} declares an edge to \"{target}\", which is not a known Component. \
                  If this points outside the monorepo, mark it `external = true`."
             ),
-            ProblemKind::UnknownFromPart { component, part } => write!(
+            ProblemKind::UnknownFromPart {
+                component,
+                part,
+                hint,
+            } => write!(
                 f,
                 "{component} declares an edge with from_part \"{part}\", which is not a Part \
-                 it declares"
+                 it declares{hint}"
             ),
             ProblemKind::UnknownToPart {
                 from,
                 to_component,
                 part,
+                hint,
             } => write!(
                 f,
                 "{from} declares an edge to \"{to_component}\" with to_part \"{part}\", which \
-                 is not a Part {to_component} declares"
+                 is not a Part {to_component} declares{hint}"
             ),
             ProblemKind::ToPartOnExternalEdge { from, part } => write!(
                 f,
@@ -99,10 +135,11 @@ impl std::fmt::Display for ProblemKind {
                 component,
                 part,
                 target,
+                hint,
             } => write!(
                 f,
                 "Component \"{component}\"'s Part \"{part}\" declares an internal edge to \
-                 \"{target}\", which is not a Part it declares"
+                 \"{target}\", which is not a Part it declares{hint}"
             ),
         }
     }
@@ -189,6 +226,7 @@ pub fn validate(graph: &Graph) -> Vec<Problem> {
                             component: component.name.clone(),
                             part: part.name.clone(),
                             target: part_edge.target.clone(),
+                            hint: PartHint::for_name(&part_edge.target, component),
                         },
                     ));
                 }
@@ -204,6 +242,7 @@ pub fn validate(graph: &Graph) -> Vec<Problem> {
                     ProblemKind::UnknownFromPart {
                         component: component.name.clone(),
                         part: from_part.clone(),
+                        hint: PartHint::for_name(from_part, component),
                     },
                 ));
             }
@@ -228,6 +267,7 @@ pub fn validate(graph: &Graph) -> Vec<Problem> {
                                 from: component.name.clone(),
                                 to_component: target_name.clone(),
                                 part: to_part.clone(),
+                                hint: PartHint::for_name(to_part, target),
                             },
                         ));
                     }
@@ -244,7 +284,6 @@ pub fn validate(graph: &Graph) -> Vec<Problem> {
 mod tests {
     use super::*;
     use crate::model::{Part, PartEdge};
-    use PathBuf;
 
     fn component(name: &str, dir: &str, edges: Vec<Edge>) -> Component {
         Component {
@@ -414,6 +453,76 @@ mod tests {
             ],
         };
         assert!(validate(&graph).is_empty());
+    }
+
+    #[test]
+    fn part_hint_suggests_a_near_miss() {
+        let owner = component_with_parts(
+            "report-generator",
+            vec![],
+            vec![part("fetch-thread", vec![]), part("upload-thread", vec![])],
+        );
+        assert_eq!(
+            PartHint::for_name("fetch-thraed", &owner),
+            PartHint::DidYouMean("fetch-thread".to_string())
+        );
+    }
+
+    #[test]
+    fn part_hint_lists_declared_parts_when_nothing_is_close() {
+        let owner = component_with_parts(
+            "report-generator",
+            vec![],
+            vec![part("fetch-thread", vec![]), part("upload-thread", vec![])],
+        );
+        let hint = PartHint::for_name("fetcher", &owner);
+        assert_eq!(
+            hint,
+            PartHint::Declared(vec![
+                "fetch-thread".to_string(),
+                "upload-thread".to_string()
+            ])
+        );
+        assert_eq!(
+            hint.to_string(),
+            " (declared Parts: fetch-thread, upload-thread)"
+        );
+    }
+
+    #[test]
+    fn part_hint_is_empty_for_a_component_without_parts() {
+        let owner = component("user-service", "user-service", vec![]);
+        assert_eq!(PartHint::for_name("worker", &owner), PartHint::None);
+        assert_eq!(PartHint::None.to_string(), "");
+    }
+
+    #[test]
+    fn unknown_to_part_hints_at_the_target_components_parts() {
+        let graph = Graph {
+            components: vec![
+                component_with_parts(
+                    "api-gateway",
+                    vec![Edge {
+                        to_part: Some("fetch-thraed".to_string()),
+                        ..edge(EdgeTarget::Component("report-generator".to_string()))
+                    }],
+                    vec![part("fetch-thread-local", vec![])],
+                ),
+                component_with_parts(
+                    "report-generator",
+                    vec![],
+                    vec![part("fetch-thread", vec![])],
+                ),
+            ],
+        };
+        let problems = validate(&graph);
+        assert_eq!(problems.len(), 1);
+        assert!(
+            problems[0]
+                .kind
+                .to_string()
+                .ends_with(r#"declares — did you mean "fetch-thread"?"#)
+        );
     }
 
     #[test]
