@@ -40,10 +40,10 @@ Unknown keys are rejected, so a misspelled `extrenal = true` fails to parse inst
 |---|---|---|---|
 | `name` | string | only as fallback | The Component's Name, used only when no co-located language-native project file provides one (see below). |
 | `environment` | string | no | Free-text deployment label, e.g. `"cloud"`, `"iot"`, `"mobile"`. At most one per Component. |
-| `edges` | array of tables | no | This Component's outgoing calls. See below. |
+| `edges` | array of strings or tables | no | This Component's outgoing calls. See below. |
 | `parts` | array of tables | no | This Component's internal subdivisions (threads, actors, modules). See below. |
 
-Each entry under `[[edges]]`:
+Each edge is either a bare string — just the `target` — or a table with these fields:
 
 | Field | Type | Required | Meaning |
 |---|---|---|---|
@@ -59,7 +59,7 @@ Each entry under `[[parts]]`:
 | Field | Type | Required | Meaning |
 |---|---|---|---|
 | `name` | string | yes | The Part's name — unique only *within* this Component, never globally. |
-| `edges` | array of tables | no | This Part's purely-internal calls to other Parts in the *same* Component. Each entry has `target` (another Part's name), `via`, `data` — no `external`/`from_part`/`to_part`, since both ends are always Parts of this one Component. |
+| `edges` | array of strings or tables | no | This Part's purely-internal calls to other Parts in the *same* Component. Each entry has `target` (another Part's name), `via`, `data` — no `external`/`from_part`/`to_part`, since both ends are always Parts of this one Component. |
 
 **A Component's Name is never retyped in `diagraph.toml`.** It's read, in order, from:
 
@@ -69,6 +69,15 @@ Each entry under `[[parts]]`:
 4. `diagraph.toml`'s own `name` field — only as a last resort, when none of the above exist
 
 (Why: two names for one thing drift apart over time.)
+
+Edges can be written compactly — a bare string when the target is all you know, an inline table otherwise:
+
+```toml
+edges = [
+  "user-service",
+  { target = "s3-reports-bucket", external = true, via = "upload" },
+]
+```
 
 Two examples from `examples/monorepo/`:
 

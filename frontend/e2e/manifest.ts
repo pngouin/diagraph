@@ -24,22 +24,26 @@ export function writeTree(model: Model, root: string): void {
     if (c.environment !== null && model.environments.length > 0) {
       lines.push(`environment = ${tomlString(model.environments[c.environment % model.environments.length]!)}`);
     }
+    if (c.edges.length > 0) lines.push("edges = [");
     for (const e of c.edges) {
       const external = e.target.kind === "external" && externals.length > 0;
       const target = external
         ? externals[e.target.index % externals.length]!
         : model.components[e.target.index % model.components.length]!;
-      lines.push("", "[[edges]]", `target = ${tomlString(typeof target === "string" ? target : target.name)}`);
-      if (e.via !== null) lines.push(`via = ${tomlString(e.via)}`);
-      if (e.data !== null) lines.push(`data = ${tomlString(e.data)}`);
-      if (external) lines.push("external = true");
+      const targetName = tomlString(typeof target === "string" ? target : target.name);
+      const fields = [`target = ${targetName}`];
+      if (e.via !== null) fields.push(`via = ${tomlString(e.via)}`);
+      if (e.data !== null) fields.push(`data = ${tomlString(e.data)}`);
+      if (external) fields.push("external = true");
       if (e.fromPart !== null && c.parts.length > 0) {
-        lines.push(`from_part = ${tomlString(c.parts[e.fromPart % c.parts.length]!.name)}`);
+        fields.push(`from_part = ${tomlString(c.parts[e.fromPart % c.parts.length]!.name)}`);
       }
       if (!external && e.toPart !== null && typeof target !== "string" && target.parts.length > 0) {
-        lines.push(`to_part = ${tomlString(target.parts[e.toPart % target.parts.length]!.name)}`);
+        fields.push(`to_part = ${tomlString(target.parts[e.toPart % target.parts.length]!.name)}`);
       }
+      lines.push(fields.length === 1 ? `  ${targetName},` : `  { ${fields.join(", ")} },`);
     }
+    if (c.edges.length > 0) lines.push("]");
     c.parts.forEach((p, pi) => {
       lines.push("", "[[parts]]", `name = ${tomlString(p.name)}`);
       for (const pe of c.partEdges) {
