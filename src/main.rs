@@ -5,7 +5,8 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand, ValueEnum};
 
-use diagraph::{discover, render, validate};
+use diagraph::init::NameOrigin;
+use diagraph::{discover, init, render, validate};
 
 #[derive(Parser)]
 #[command(
@@ -20,6 +21,14 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Create a starter diagraph.toml in DIR.
+    Init {
+        #[arg(default_value = ".")]
+        dir: PathBuf,
+        /// Name for a Component with no Cargo.toml, package.json, or pyproject.toml.
+        #[arg(long)]
+        name: Option<String>,
+    },
     /// Scan the monorepo and validate every diagraph.toml.
     Check {
         #[arg(long, default_value = ".")]
@@ -76,6 +85,7 @@ enum Format {
 
 fn main() -> Result<()> {
     match Cli::parse().command {
+        Command::Init { dir, name } => cmd_init(&dir, name.as_deref()),
         Command::Check { root } => cmd_check(&root),
         Command::Render {
             root,
@@ -94,6 +104,23 @@ fn main() -> Result<()> {
             Some(ViewAction::Serve { root, host, port }) => cmd_view_serve(&root, &host, port),
         },
     }
+}
+
+fn cmd_init(dir: &Path, name: Option<&str>) -> Result<()> {
+    let done = init::init(dir, name)?;
+    let origin = match done.origin {
+        NameOrigin::ProjectFile(file) => format!("Name from {file}"),
+        NameOrigin::Flag => "Name from --name".to_string(),
+        NameOrigin::DirName => {
+            "Name guessed from the directory; pass --name to choose another".to_string()
+        }
+    };
+    println!(
+        "Created {} for Component \"{}\" ({origin})",
+        display_path(&done.manifest).display(),
+        done.name
+    );
+    Ok(())
 }
 
 fn cmd_check(root: &Path) -> Result<()> {

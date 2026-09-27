@@ -30,6 +30,8 @@ cargo run -- render --root examples/monorepo
 cargo run -- view --root examples/monorepo -o diagraph.html
 ```
 
+To declare a Component of your own, run `diagraph init` in its directory: it writes a starter `diagraph.toml` and tells you which Name other Components should use to target it.
+
 ## The `diagraph.toml` schema
 
 A directory is a Component purely because it contains a `diagraph.toml` — nothing else about it matters (it doesn't need to be a Cargo/npm package boundary).
@@ -144,6 +146,11 @@ Every view renders the same underlying facts — Environments, Components, Edges
 ## CLI reference
 
 ```sh
+# Create a starter diagraph.toml in DIR (default: current directory). Never overwrites.
+# --name is only for a Component with no Cargo.toml, package.json or pyproject.toml;
+# without it, such a Component is named after its directory.
+diagraph init [DIR] [--name NAME]
+
 # Validate every diagraph.toml under --root (default: current directory)
 diagraph check [--root PATH]
 
