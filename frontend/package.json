@@ -20,7 +20,7 @@
     "@types/d3-ease": "^3.0.2",
     "@types/d3-selection": "^3.0.10",
     "@types/d3-transition": "^3.0.8",
-    "@types/d3-zoom": "^3.0.8",
+    "@types/d3-zoom": "^3.0.9",
     "@playwright/test": "^1.63.0",
     "fast-check": "^4.10.2",
     "@types/node": "^26.6.3"
