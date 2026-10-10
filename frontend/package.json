@@ -23,7 +23,7 @@
     "@types/d3-zoom": "^3.0.9",
     "@playwright/test": "^1.63.0",
     "fast-check": "^4.10.2",
-    "@types/node": "^26.6.3"
+    "@types/node": "^26.6.4"
   },
   "allowScripts": {
     "esbuild@0.24.2": true
